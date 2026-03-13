@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68.0", "setuptools-scm>=8.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oakensoul-devbox"
+version = "0.1.0"
+description = "CLI and library for managing disposable SSH-only macOS dev environments"
+requires-python = ">=3.11"
+dependencies = [
+    "click>=8.0",
+    "rich>=13.0",
+    "requests>=2.28",
+]
+
+[project.scripts]
+devbox = "devbox.cli:cli"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.4",
+]
