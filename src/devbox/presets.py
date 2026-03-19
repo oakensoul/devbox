@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Robert Gunnar Johnson Jr.
+
 """Load and validate preset JSON files from ~/.dotfiles-private/devbox/presets/."""
 
 from __future__ import annotations
@@ -20,10 +23,17 @@ _GITHUB_ACCOUNT_RE = GITHUB_ACCOUNT_RE
 _SAFE_VALUE_RE = re.compile(r"^[a-zA-Z0-9@_./:=-]*$")
 _ENV_KEY_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 _VALID_PROVIDERS = frozenset({"local", "aws"})
-_DANGEROUS_ENV_KEYS = frozenset({
-    "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH",
-    "LD_LIBRARY_PATH", "BASH_ENV", "ENV", "PROMPT_COMMAND",
-})
+_DANGEROUS_ENV_KEYS = frozenset(
+    {
+        "LD_PRELOAD",
+        "DYLD_INSERT_LIBRARIES",
+        "DYLD_LIBRARY_PATH",
+        "LD_LIBRARY_PATH",
+        "BASH_ENV",
+        "ENV",
+        "PROMPT_COMMAND",
+    }
+)
 
 
 class Preset(BaseModel):
@@ -135,9 +145,7 @@ def load_preset(name: str, presets_dir: Path | None = None) -> Preset:
     preset = validate_preset(data)
 
     if preset.name != name:
-        raise PresetError(
-            f"Preset name {preset.name!r} does not match filename {name!r}"
-        )
+        raise PresetError(f"Preset name {preset.name!r} does not match filename {name!r}")
 
     return preset
 

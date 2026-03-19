@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Robert Gunnar Johnson Jr.
+
 """Read/write ~/.devbox/registry.json."""
 
 from __future__ import annotations
@@ -141,9 +144,7 @@ def find_entry(name: str, path: Path | None = None) -> RegistryEntry | None:
     return None
 
 
-def update_entry(
-    devbox_name: str, path: Path | None = None, **fields: object
-) -> None:
+def update_entry(devbox_name: str, path: Path | None = None, **fields: object) -> None:
     """Partial update by name. Raise RegistryError if not found.
 
     The ``name`` field cannot be updated. Only fields in ``_UPDATABLE_FIELDS``

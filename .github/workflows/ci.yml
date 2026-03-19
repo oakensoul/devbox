@@ -4,24 +4,61 @@ on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  lint-and-test:
+  check-attribution:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Check commit messages for AI attribution
+        run: |
+          MERGE_BASE=$(git merge-base origin/${{ github.base_ref }} HEAD)
+          if git log "$MERGE_BASE..HEAD" --format='%B' | grep -iE '^Co-Authored-By:.*\b(claude|anthropic|openai|chatgpt|copilot|gemini|ai\b)'; then
+            echo "::error::Found AI co-authorship attribution in commit messages. Remove Co-Authored-By trailers referencing AI tools."
+            exit 1
+          fi
+          echo "Commit messages clean."
+
+      - name: Check PR description for AI attribution
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if echo "$PR_BODY" | grep -iE '(co-authored-by|generated with|powered by|assisted by).*(claude|anthropic|openai|chatgpt|copilot|gemini)'; then
+            echo "::error::Found AI attribution in PR description. Remove AI-generated attribution text from the PR body."
+            exit 1
+          fi
+          echo "PR description clean."
+
+  ci:
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
+    runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Upgrade pip and setuptools
+        run: pip install --upgrade pip setuptools
 
       - name: Install dependencies
         run: pip install -e ".[dev]"
@@ -29,8 +66,19 @@ jobs:
       - name: Lint with ruff
         run: ruff check .
 
+      - name: Check formatting
+        run: ruff format --check .
+
       - name: Type check with mypy
         run: mypy src/
 
       - name: Run tests
         run: pytest -m "not integration"
+
+      - name: Audit dependencies
+        run: pip-audit
+
+      - name: Verify package builds
+        run: |
+          python -m build
+          twine check dist/*

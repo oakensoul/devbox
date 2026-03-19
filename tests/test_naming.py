@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Robert Gunnar Johnson Jr.
+
 """Tests for devbox name validation."""
 
 from __future__ import annotations
@@ -34,25 +37,25 @@ class TestInvalidNames:
     @pytest.mark.parametrize(
         "name",
         [
-            "Splash",          # uppercase letter
-            "splash_work",     # underscore
-            "-bad",            # leading dash
-            "bad-",            # trailing dash
-            "splash--work",    # consecutive dashes
-            "",                # empty string
-            "has spaces",      # space
-            "special!chars",   # exclamation mark
-            "ALLCAPS",         # all uppercase
-            "Mixed-Case",      # mixed case
-            "-",               # lone dash
-            "--",              # double dash only
-            "a-",              # trailing dash, short name
-            "-a",              # leading dash, short name
-            "a--b",            # consecutive dashes in middle
-            "hello world",     # space in middle
-            "foo@bar",         # at-sign
-            "foo.bar",         # dot
-            "foo/bar",         # slash
+            "Splash",  # uppercase letter
+            "splash_work",  # underscore
+            "-bad",  # leading dash
+            "bad-",  # trailing dash
+            "splash--work",  # consecutive dashes
+            "",  # empty string
+            "has spaces",  # space
+            "special!chars",  # exclamation mark
+            "ALLCAPS",  # all uppercase
+            "Mixed-Case",  # mixed case
+            "-",  # lone dash
+            "--",  # double dash only
+            "a-",  # trailing dash, short name
+            "-a",  # leading dash, short name
+            "a--b",  # consecutive dashes in middle
+            "hello world",  # space in middle
+            "foo@bar",  # at-sign
+            "foo.bar",  # dot
+            "foo/bar",  # slash
         ],
     )
     def test_invalid_name_raises_value_error(self, name: str) -> None:

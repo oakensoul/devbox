@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Robert Gunnar Johnson Jr.
+
 """macOS user management via dscl."""
 
 from __future__ import annotations
@@ -32,9 +35,7 @@ def _get_used_uids() -> set[int]:
         raise MacOSUserError("dscl timed out while listing users") from None
 
     if result.returncode != 0:
-        raise MacOSUserError(
-            f"Failed to list users (exit code {result.returncode})"
-        )
+        raise MacOSUserError(f"Failed to list users (exit code {result.returncode})")
 
     uids: set[int] = set()
     for line in result.stdout.strip().splitlines():
@@ -64,32 +65,34 @@ def _run_dscl(args: list[str]) -> None:
     cmd = ["sudo", "dscl", ".", *args]
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=30,
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
     except FileNotFoundError:
         raise MacOSUserError("sudo or dscl not found") from None
     except subprocess.TimeoutExpired:
         raise MacOSUserError(f"dscl timed out: {' '.join(args)}") from None
     if result.returncode != 0:
-        raise MacOSUserError(
-            f"dscl failed (exit code {result.returncode}): {' '.join(args)}"
-        )
+        raise MacOSUserError(f"dscl failed (exit code {result.returncode}): {' '.join(args)}")
 
 
 def _run_cmd(cmd: list[str], error_msg: str) -> None:
     """Run a command via sudo, raising MacOSUserError on failure."""
     try:
         result = subprocess.run(
-            ["sudo", *cmd], capture_output=True, text=True, timeout=30,
+            ["sudo", *cmd],
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
     except FileNotFoundError:
         raise MacOSUserError(f"{error_msg}: command not found") from None
     except subprocess.TimeoutExpired:
         raise MacOSUserError(f"{error_msg}: timed out") from None
     if result.returncode != 0:
-        raise MacOSUserError(
-            f"{error_msg} (exit code {result.returncode})"
-        )
+        raise MacOSUserError(f"{error_msg} (exit code {result.returncode})")
 
 
 def _validate_home_dir(home_dir: str) -> None:

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Robert Gunnar Johnson Jr.
+
 """Tests for the devbox exception hierarchy."""
 
 import pytest
@@ -46,9 +49,7 @@ class TestSubclasses:
         assert issubclass(exc_class, Exception)
 
     @pytest.mark.parametrize("exc_class", ALL_SUBCLASSES)
-    def test_can_be_raised_and_caught_as_devbox_error(
-        self, exc_class: type[DevboxError]
-    ) -> None:
+    def test_can_be_raised_and_caught_as_devbox_error(self, exc_class: type[DevboxError]) -> None:
         with pytest.raises(DevboxError):
             raise exc_class("error from subclass")
 
@@ -59,9 +60,7 @@ class TestSubclasses:
         assert str(exc) == msg
 
     @pytest.mark.parametrize("exc_class", ALL_SUBCLASSES)
-    def test_catching_devbox_error_catches_subclass(
-        self, exc_class: type[DevboxError]
-    ) -> None:
+    def test_catching_devbox_error_catches_subclass(self, exc_class: type[DevboxError]) -> None:
         caught: DevboxError | None = None
         try:
             raise exc_class("caught via base")

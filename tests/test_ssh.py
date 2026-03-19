@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Robert Gunnar Johnson Jr.
+
 """Tests for SSH key generation and authorized_keys."""
 
 from __future__ import annotations
@@ -112,19 +115,12 @@ class TestValidateSSHKeys:
         assert len(keys) == 1
 
     def test_multiple_keys(self) -> None:
-        content = (
-            "ssh-ed25519 AAAA user1\n"
-            "ssh-rsa BBBB user2\n"
-        )
+        content = "ssh-ed25519 AAAA user1\nssh-rsa BBBB user2\n"
         keys = _validate_ssh_keys(content)
         assert len(keys) == 2
 
     def test_skips_invalid_lines(self) -> None:
-        content = (
-            "ssh-ed25519 AAAA user1\n"
-            "not-a-key\n"
-            "ssh-rsa BBBB user2\n"
-        )
+        content = "ssh-ed25519 AAAA user1\nnot-a-key\nssh-rsa BBBB user2\n"
         keys = _validate_ssh_keys(content)
         assert len(keys) == 2
 
@@ -200,9 +196,7 @@ class TestPopulateAuthorizedKeys:
         home = tmp_path / "dx-dev1"
         home.mkdir()
         mock_get = mocker.patch("devbox.ssh.requests.get")
-        mock_get.return_value = MagicMock(
-            status_code=200, text="not a key\n"
-        )
+        mock_get.return_value = MagicMock(status_code=200, text="not a key\n")
         mock_get.return_value.raise_for_status = MagicMock()
 
         with pytest.raises(SSHError, match="No valid SSH public keys"):
@@ -234,17 +228,13 @@ class TestPopulateAuthorizedKeys:
 
         populate_authorized_keys(home)
 
-        mock_get.assert_called_once_with(
-            "https://github.com/config-user.keys", timeout=10
-        )
+        mock_get.assert_called_once_with("https://github.com/config-user.keys", timeout=10)
 
     def test_ssh_dir_permissions(self, tmp_path: Path, mocker: MockerFixture) -> None:
         home = tmp_path / "dx-dev1"
         home.mkdir()
         mock_get = mocker.patch("devbox.ssh.requests.get")
-        mock_get.return_value = MagicMock(
-            status_code=200, text="ssh-ed25519 AAAA user@host\n"
-        )
+        mock_get.return_value = MagicMock(status_code=200, text="ssh-ed25519 AAAA user@host\n")
         mock_get.return_value.raise_for_status = MagicMock()
 
         populate_authorized_keys(home, github_user="user")
@@ -256,9 +246,7 @@ class TestPopulateAuthorizedKeys:
         home = tmp_path / "dx-dev1"
         home.mkdir()
         mock_get = mocker.patch("devbox.ssh.requests.get")
-        mock_get.return_value = MagicMock(
-            status_code=200, text="ssh-ed25519 AAAA user@host\n"
-        )
+        mock_get.return_value = MagicMock(status_code=200, text="ssh-ed25519 AAAA user@host\n")
         mock_get.return_value.raise_for_status = MagicMock()
         mock_run = mocker.patch("devbox.ssh.subprocess.run")
         mock_run.return_value = MagicMock(returncode=0)
@@ -273,9 +261,7 @@ class TestPopulateAuthorizedKeys:
         home = tmp_path / "dx-dev1"
         home.mkdir()
         mock_get = mocker.patch("devbox.ssh.requests.get")
-        mock_get.return_value = MagicMock(
-            status_code=200, text="ssh-ed25519 AAAA user@host\n"
-        )
+        mock_get.return_value = MagicMock(status_code=200, text="ssh-ed25519 AAAA user@host\n")
         mock_get.return_value.raise_for_status = MagicMock()
 
         with pytest.raises(SSHError, match="Invalid target user"):

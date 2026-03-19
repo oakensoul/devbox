@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Robert Gunnar Johnson Jr.
+
 """GitHub API — SSH key lifecycle (add/remove)."""
 
 from __future__ import annotations
@@ -54,9 +57,7 @@ def add_ssh_key(title: str, public_key: str, github_account: str) -> str:
         raise GitHubError("GitHub API rate limit exceeded or forbidden")
 
     if response.status_code != 201:
-        raise GitHubError(
-            f"GitHub API returned unexpected status {response.status_code}"
-        )
+        raise GitHubError(f"GitHub API returned unexpected status {response.status_code}")
 
     data = response.json()
     key_id = data.get("id")
@@ -97,6 +98,4 @@ def remove_ssh_key(key_id: str, github_account: str) -> None:
         raise GitHubError("GitHub API rate limit exceeded or forbidden")
 
     if response.status_code not in (204, 200):
-        raise GitHubError(
-            f"GitHub API returned unexpected status {response.status_code}"
-        )
+        raise GitHubError(f"GitHub API returned unexpected status {response.status_code}")

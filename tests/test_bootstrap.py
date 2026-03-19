@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Robert Gunnar Johnson Jr.
+
 """Tests for bootstrap module — nvm, pyenv, brew extras, npm/pip globals."""
 
 from __future__ import annotations
