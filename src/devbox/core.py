@@ -13,7 +13,7 @@ from typing import Any
 
 from devbox import github, iterm2, macos, onepassword, ssh, sshd
 from devbox.exceptions import DevboxError
-from devbox.naming import validate_name
+from devbox.naming import DX_PREFIX, validate_name
 from devbox.presets import load_preset
 from devbox.registry import (
     DevboxStatus,
@@ -28,10 +28,9 @@ from devbox.registry import (
 logger = logging.getLogger(__name__)
 
 _ATROPHY_DAYS = 30
-_DX_PREFIX = "dx-"
 
 
-def _write_env_file(
+def write_env_file(
     home_dir: Path, resolved_env: dict[str, str], target_user: str | None = None
 ) -> None:
     """Write resolved env vars to .devbox-env with mode 0600.
@@ -54,7 +53,7 @@ def _shell_escape(value: str) -> str:
 
 def _read_heartbeat(name: str) -> datetime | None:
     """Read the heartbeat timestamp for a devbox user."""
-    heartbeat_path = Path(f"/Users/{_DX_PREFIX}{name}/.devbox_heartbeat")
+    heartbeat_path = Path(f"/Users/{DX_PREFIX}{name}/.devbox_heartbeat")
     if not heartbeat_path.exists():
         return None
     try:
@@ -186,7 +185,7 @@ def create_devbox(
         # Step 6: Resolve and write env vars
         if preset_obj.env_vars:
             resolved = onepassword.resolve_env_vars(preset_obj.env_vars)
-            _write_env_file(home_dir, resolved, target_user=username)
+            write_env_file(home_dir, resolved, target_user=username)
 
         # TODO(milestone-5): Bootstrap user (nvm, pyenv, brew extras, pip/npm globals)
         # TODO(milestone-5): Inject Claude Code auth from parent user
@@ -289,7 +288,7 @@ def nuke_devbox(
             logger.warning("Failed to remove GitHub key: %s", exc)
 
     # Remove from SSH access group
-    username = f"{_DX_PREFIX}{name}"
+    username = f"{DX_PREFIX}{name}"
     try:
         sshd.remove_user_from_ssh_group(username)
     except Exception as exc:
@@ -343,6 +342,15 @@ def rebuild_devbox(
 
     preset_name = entry.preset
     nuke_devbox(name, registry_path)
+
+    # If nuke had critical failures (entry still in registry), abort rebuild
+    remaining = find_entry(name, registry_path)
+    if remaining is not None:
+        raise DevboxError(
+            f"Cannot rebuild {name!r}: nuke failed to fully clean up "
+            f"(status: {remaining.status}). Resolve the issues and retry."
+        )
+
     return create_devbox(name, preset_name, registry_path, presets_dir)
 
 
