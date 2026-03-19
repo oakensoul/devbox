@@ -2,30 +2,127 @@
 
 from __future__ import annotations
 
+import contextlib
+import json
+import os
+import tempfile
+from enum import StrEnum
 from pathlib import Path
-from typing import Any
+
+from pydantic import BaseModel
+
+from devbox.exceptions import RegistryError
 
 REGISTRY_PATH = Path.home() / ".devbox" / "registry.json"
 
-# Registry schema:
-# {
-#   "devboxes": [
-#     {
-#       "name": "devbox1",
-#       "preset": "splash-data",
-#       "created": "2025-03-12",
-#       "last_seen": "2025-03-12T10:00:00Z",
-#       "github_key_id": "12345678"
-#     }
-#   ]
-# }
+
+class DevboxStatus(StrEnum):
+    """Lifecycle status for a devbox."""
+
+    CREATING = "creating"
+    READY = "ready"
+    NUKING = "nuking"
 
 
-def load_registry() -> dict[str, Any]:
-    """Load the registry from disk. Returns empty structure if missing."""
-    raise NotImplementedError
+class RegistryEntry(BaseModel):
+    """A single devbox entry in the registry."""
+
+    name: str
+    preset: str
+    status: DevboxStatus = DevboxStatus.CREATING
+    created: str  # ISO date
+    last_seen: str | None = None  # ISO datetime
+    github_key_id: str | None = None
 
 
-def save_registry(data: dict[str, Any]) -> None:
-    """Write the registry back to disk."""
-    raise NotImplementedError
+class Registry(BaseModel):
+    """Top-level registry schema."""
+
+    version: int = 1
+    devboxes: list[RegistryEntry] = []
+
+
+def load_registry(path: Path | None = None) -> Registry:
+    """Load the registry from disk. Returns empty registry if file missing."""
+    registry_path = path or REGISTRY_PATH
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if not registry_path.exists():
+        return Registry()
+
+    text = registry_path.read_text(encoding="utf-8")
+    if not text.strip():
+        return Registry()
+
+    data = json.loads(text)
+    version = data.get("version", 1)
+    if version != 1:
+        raise RegistryError(f"Unsupported registry version: {version}")
+
+    return Registry.model_validate(data)
+
+
+def save_registry(registry: Registry, path: Path | None = None) -> None:
+    """Atomic write: write to temp file in same dir, then os.replace."""
+    registry_path = path or REGISTRY_PATH
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+
+    content = registry.model_dump_json(indent=2) + "\n"
+
+    fd, tmp_path = tempfile.mkstemp(
+        dir=str(registry_path.parent),
+        prefix=".registry_",
+        suffix=".tmp",
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+        os.replace(tmp_path, str(registry_path))
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_path)
+        raise
+
+
+def add_entry(entry: RegistryEntry, path: Path | None = None) -> None:
+    """Append entry to devboxes list. Raise RegistryError if duplicate name."""
+    registry = load_registry(path)
+    for existing in registry.devboxes:
+        if existing.name == entry.name:
+            raise RegistryError(f"Duplicate devbox name: {entry.name}")
+    registry.devboxes.append(entry)
+    save_registry(registry, path)
+
+
+def remove_entry(name: str, path: Path | None = None) -> None:
+    """Remove entry by name. Raise RegistryError if not found."""
+    registry = load_registry(path)
+    for i, existing in enumerate(registry.devboxes):
+        if existing.name == name:
+            registry.devboxes.pop(i)
+            save_registry(registry, path)
+            return
+    raise RegistryError(f"Devbox not found: {name}")
+
+
+def find_entry(name: str, path: Path | None = None) -> RegistryEntry | None:
+    """Lookup by name, return RegistryEntry or None."""
+    registry = load_registry(path)
+    for existing in registry.devboxes:
+        if existing.name == name:
+            return existing
+    return None
+
+
+def update_entry(name: str, path: Path | None = None, **fields: object) -> None:
+    """Partial update by name. Raise RegistryError if not found."""
+    registry = load_registry(path)
+    for existing in registry.devboxes:
+        if existing.name == name:
+            for key, value in fields.items():
+                if not hasattr(existing, key):
+                    raise RegistryError(f"Invalid field: {key}")
+                setattr(existing, key, value)
+            save_registry(registry, path)
+            return
+    raise RegistryError(f"Devbox not found: {name}")
