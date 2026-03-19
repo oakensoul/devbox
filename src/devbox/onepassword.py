@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 
 from devbox.exceptions import OnePasswordError
+
+# Require exactly 3 path segments (vault/item/field), max 512 chars.
+_OP_REF_RE = re.compile(r"^op://[\w.@-]+/[\w.@-]+/[\w.@:-]+$")
 
 
 def get_secret(reference: str, timeout: int = 10) -> str:
@@ -12,6 +16,9 @@ def get_secret(reference: str, timeout: int = 10) -> str:
 
     Raises OnePasswordError on failure.
     """
+    if not reference or len(reference) > 512 or not _OP_REF_RE.match(reference):
+        raise OnePasswordError("Invalid 1Password reference format")
+
     try:
         result = subprocess.run(
             ["op", "read", reference],
@@ -27,7 +34,10 @@ def get_secret(reference: str, timeout: int = 10) -> str:
         ) from None
 
     if result.returncode != 0:
-        raise OnePasswordError(result.stderr.strip())
+        raise OnePasswordError(
+            f"Failed to resolve 1Password reference (exit code {result.returncode}). "
+            "Check that the reference is valid and the vault is unlocked."
+        )
 
     return result.stdout.strip()
 
