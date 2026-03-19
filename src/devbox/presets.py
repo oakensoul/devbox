@@ -14,8 +14,16 @@ from devbox.naming import validate_name
 
 PRESETS_DIR = Path.home() / ".dotfiles-private" / "devbox" / "presets"
 
+# Allows scoped npm (@scope/name) and brew taps (tap/formula), but rejects path traversal.
 _PACKAGE_NAME_RE = re.compile(r"^[a-zA-Z0-9@_./-]+$")
-_GITHUB_ACCOUNT_RE = re.compile(r"^[a-zA-Z0-9-]+$")
+_GITHUB_ACCOUNT_RE = re.compile(r"^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$")
+_SAFE_VALUE_RE = re.compile(r"^[a-zA-Z0-9@_./:=-]*$")
+_ENV_KEY_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+_VALID_PROVIDERS = frozenset({"local", "aws"})
+_DANGEROUS_ENV_KEYS = frozenset({
+    "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH",
+    "LD_LIBRARY_PATH", "BASH_ENV", "ENV", "PROMPT_COMMAND",
+})
 
 
 class Preset(BaseModel):
@@ -40,10 +48,14 @@ class Preset(BaseModel):
 
     @field_validator("brew_extras", "npm_globals", "pip_globals", mode="before")
     @classmethod
-    def validate_package_names(cls, v: list[str]) -> list[str]:
+    def validate_package_names(cls, v: object) -> object:
         """Reject package names that could cause injection in subprocess calls."""
+        if not isinstance(v, list):
+            return v  # let pydantic's type checker handle non-list input
         for pkg in v:
-            if not _PACKAGE_NAME_RE.match(pkg) or pkg.startswith("-"):
+            if not isinstance(pkg, str):
+                return v  # let pydantic handle non-str elements
+            if not _PACKAGE_NAME_RE.match(pkg) or pkg.startswith("-") or ".." in pkg:
                 msg = f"Invalid package name: {pkg!r}"
                 raise ValueError(msg)
         return v
@@ -52,9 +64,44 @@ class Preset(BaseModel):
     @classmethod
     def validate_github_account(cls, v: str) -> str:
         """Reject GitHub account names with special characters."""
-        if not _GITHUB_ACCOUNT_RE.match(v):
+        if not _GITHUB_ACCOUNT_RE.match(v) or len(v) > 39:
             msg = f"Invalid GitHub account: {v!r}"
             raise ValueError(msg)
+        return v
+
+    @field_validator("provider")
+    @classmethod
+    def validate_provider(cls, v: str) -> str:
+        """Only allow known provider values."""
+        if v not in _VALID_PROVIDERS:
+            msg = f"Unknown provider: {v!r}. Must be one of: {', '.join(sorted(_VALID_PROVIDERS))}"
+            raise ValueError(msg)
+        return v
+
+    @field_validator("aws_profile", "color_scheme", "node_version", "python_version", "mcp_profile")
+    @classmethod
+    def validate_safe_string(cls, v: str) -> str:
+        """Reject values with shell metacharacters."""
+        if not _SAFE_VALUE_RE.match(v):
+            msg = f"Invalid characters in field value: {v!r}"
+            raise ValueError(msg)
+        return v
+
+    @field_validator("env_vars")
+    @classmethod
+    def validate_env_vars(cls, v: dict[str, str]) -> dict[str, str]:
+        """Validate env var keys and non-op:// values for injection safety."""
+        for key, value in v.items():
+            if not _ENV_KEY_RE.match(key):
+                msg = f"Invalid env var key: {key!r}"
+                raise ValueError(msg)
+            if key in _DANGEROUS_ENV_KEYS:
+                msg = f"Dangerous env var key not allowed: {key!r}"
+                raise ValueError(msg)
+            # op:// values will be validated by get_secret at resolution time
+            if not value.startswith("op://") and not _SAFE_VALUE_RE.match(value):
+                msg = f"Invalid characters in env var value for {key!r}"
+                raise ValueError(msg)
         return v
 
 

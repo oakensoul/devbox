@@ -111,6 +111,20 @@ class TestSaveRegistry:
         assert data["devboxes"][0]["name"] == "dev1"
 
 
+class TestFilePermissions:
+    def test_saved_file_is_0600(self, tmp_path: Path) -> None:
+        p = _registry_path(tmp_path)
+        save_registry(Registry(), p)
+        assert (p.stat().st_mode & 0o777) == 0o600
+
+    def test_tightens_existing_dir_permissions(self, tmp_path: Path) -> None:
+        d = tmp_path / "loose"
+        d.mkdir(mode=0o755)
+        p = d / "registry.json"
+        save_registry(Registry(), p)
+        assert (d.stat().st_mode & 0o777) == 0o700
+
+
 class TestAddEntry:
     def test_adds_entry(self, tmp_path: Path) -> None:
         p = _registry_path(tmp_path)
@@ -230,6 +244,18 @@ class TestModels:
         reg = Registry()
         assert reg.version == 1
         assert reg.devboxes == []
+
+    def test_invalid_github_key_id_raises(self) -> None:
+        with pytest.raises(Exception, match="numeric"):
+            RegistryEntry(
+                name="x", preset="p", created="2025-01-01", github_key_id="abc"
+            )
+
+    def test_valid_github_key_id_accepted(self) -> None:
+        entry = RegistryEntry(
+            name="x", preset="p", created="2025-01-01", github_key_id="12345"
+        )
+        assert entry.github_key_id == "12345"
 
     def test_registry_entry_serialization(self) -> None:
         entry = _make_entry(
