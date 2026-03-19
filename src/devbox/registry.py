@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 REGISTRY_PATH = Path.home() / ".devbox" / "registry.json"
 
@@ -20,11 +21,11 @@ REGISTRY_PATH = Path.home() / ".devbox" / "registry.json"
 # }
 
 
-def load_registry() -> dict:
+def load_registry() -> dict[str, Any]:
     """Load the registry from disk. Returns empty structure if missing."""
     raise NotImplementedError
 
 
-def save_registry(data: dict) -> None:
+def save_registry(data: dict[str, Any]) -> None:
     """Write the registry back to disk."""
     raise NotImplementedError
