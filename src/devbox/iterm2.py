@@ -35,23 +35,24 @@ def _build_profile(name: str, preset: Preset) -> dict[str, Any]:
     username = f"dx-{name}"
     color_preset = _COLOR_PRESETS.get(preset.color_scheme, preset.color_scheme)
 
-    return {
-        "Profiles": [
-            {
-                "Name": f"devbox::{name}",
-                "Guid": f"devbox-{name}",
-                "Badge Text": name,
-                "Command": f"ssh {username}@localhost",
-                "Custom Command": "Yes",
-                "Dynamic Profile Parent Name": "Default",
-                "Semantic History": {
-                    "action": "best editor",
-                },
-                "Tags": ["devbox", preset.name],
-            }
-            | ({"Color Preset": color_preset} if color_preset else {})
-        ]
+    profile: dict[str, object] = {
+        "Name": f"devbox::{name}",
+        "Guid": f"devbox-{name}",
+        "Badge Text": name,
+        "Command": f"ssh {username}@localhost",
+        "Custom Command": "Yes",
+        "Dynamic Profile Parent Name": "Default",
+        "Semantic History": {
+            "action": "best editor",
+        },
+        "Tags": ["devbox", preset.name],
     }
+
+    # Only set Color Preset if a non-empty color_scheme was provided.
+    if color_preset:
+        profile["Color Preset"] = color_preset
+
+    return {"Profiles": [profile]}
 
 
 def create_profile(

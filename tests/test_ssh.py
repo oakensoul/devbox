@@ -252,6 +252,35 @@ class TestPopulateAuthorizedKeys:
         ssh_dir = home / ".ssh"
         assert (ssh_dir.stat().st_mode & 0o777) == 0o700
 
+    def test_chown_called_with_target_user(self, tmp_path: Path, mocker: MockerFixture) -> None:
+        home = tmp_path / "dx-dev1"
+        home.mkdir()
+        mock_get = mocker.patch("devbox.ssh.requests.get")
+        mock_get.return_value = MagicMock(
+            status_code=200, text="ssh-ed25519 AAAA user@host\n"
+        )
+        mock_get.return_value.raise_for_status = MagicMock()
+        mock_run = mocker.patch("devbox.ssh.subprocess.run")
+        mock_run.return_value = MagicMock(returncode=0)
+
+        populate_authorized_keys(home, github_user="user", target_user="dx-dev1")
+
+        chown_calls = [c for c in mock_run.call_args_list if "chown" in str(c)]
+        assert len(chown_calls) == 1
+        assert "dx-dev1:staff" in str(chown_calls[0])
+
+    def test_invalid_target_user_raises(self, tmp_path: Path, mocker: MockerFixture) -> None:
+        home = tmp_path / "dx-dev1"
+        home.mkdir()
+        mock_get = mocker.patch("devbox.ssh.requests.get")
+        mock_get.return_value = MagicMock(
+            status_code=200, text="ssh-ed25519 AAAA user@host\n"
+        )
+        mock_get.return_value.raise_for_status = MagicMock()
+
+        with pytest.raises(SSHError, match="Invalid target user"):
+            populate_authorized_keys(home, github_user="user", target_user="root")
+
     def test_invalid_github_user_raises(self, tmp_path: Path) -> None:
         home = tmp_path / "dx-dev1"
         home.mkdir()

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import json
 import os
 import re
@@ -12,9 +11,10 @@ from pathlib import Path
 import requests
 
 from devbox.exceptions import SSHError
+from devbox.naming import GITHUB_ACCOUNT_RE
 
 _SSH_KEY_PREFIX_RE = re.compile(r"^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp\d+|sk-ssh-ed25519)\s")
-_GITHUB_ACCOUNT_RE = re.compile(r"^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$")
+_DX_USERNAME_RE = re.compile(r"^dx-[a-z0-9]+(-[a-z0-9]+)*$")
 _CONFIG_PATH = Path.home() / ".devbox" / "config.json"
 
 
@@ -99,13 +99,27 @@ def _validate_ssh_keys(content: str) -> list[str]:
 
 
 def _chown_recursive(path: Path, username: str) -> None:
-    """Change ownership of path to the given user via sudo chown."""
-    with contextlib.suppress(FileNotFoundError, subprocess.TimeoutExpired):
-        subprocess.run(
+    """Change ownership of path to the given user via sudo chown.
+
+    Raises :exc:`SSHError` if the username is invalid or chown fails.
+    """
+    if not _DX_USERNAME_RE.match(username):
+        raise SSHError(f"Invalid target user for chown: {username!r}")
+    try:
+        result = subprocess.run(
             ["sudo", "chown", "-R", f"{username}:staff", str(path)],
             capture_output=True,
             text=True,
             timeout=10,
+        )
+    except FileNotFoundError:
+        raise SSHError("chown command not found") from None
+    except subprocess.TimeoutExpired:
+        raise SSHError("chown timed out") from None
+    if result.returncode != 0:
+        raise SSHError(
+            f"Failed to set ownership on {path} to {username} "
+            f"(exit code {result.returncode})"
         )
 
 
@@ -126,7 +140,7 @@ def populate_authorized_keys(
     if github_user is None:
         github_user = _get_parent_github_user()
 
-    if not _GITHUB_ACCOUNT_RE.match(github_user) or len(github_user) > 39:
+    if not GITHUB_ACCOUNT_RE.match(github_user) or len(github_user) > 39:
         raise SSHError(f"Invalid GitHub username: {github_user!r}")
 
     url = f"https://github.com/{github_user}.keys"
