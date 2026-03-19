@@ -50,28 +50,25 @@ class TestLocalProviderProvision:
     def _mock_modules(self, mocker: MockerFixture) -> dict[str, MagicMock]:
         """Patch all external module calls and return the mocks.
 
-        Modules imported at module level in local.py (macos, github, sshd,
-        iterm2) are patched via ``devbox.providers.local.<mod>``.  Modules
-        that are deferred-imported inside ``provision()`` (ssh, onepassword,
-        core._write_env_file) are patched at their origin so the deferred
-        ``import`` picks up the mock.
+        All modules are imported at module level in local.py, so they are
+        patched via ``devbox.providers.local.<mod>``.
         """
         mocks: dict[str, MagicMock] = {}
         mocks["create_user"] = mocker.patch(
             "devbox.providers.local.macos.create_user", return_value="dx-test-box"
         )
         mocks["generate_keypair"] = mocker.patch(
-            "devbox.ssh.generate_keypair",
+            "devbox.providers.local.ssh.generate_keypair",
             return_value="ssh-ed25519 AAAA fake-public-key",
         )
         mocks["populate_authorized_keys"] = mocker.patch(
-            "devbox.ssh.populate_authorized_keys",
+            "devbox.providers.local.ssh.populate_authorized_keys",
         )
         mocks["add_ssh_key"] = mocker.patch(
             "devbox.providers.local.github.add_ssh_key", return_value=42
         )
         mocks["resolve_env_vars"] = mocker.patch(
-            "devbox.onepassword.resolve_env_vars",
+            "devbox.providers.local.onepassword.resolve_env_vars",
             return_value={"MY_TOKEN": "resolved-secret"},
         )
         mocks["ensure_ssh_access"] = mocker.patch(
@@ -99,7 +96,7 @@ class TestLocalProviderProvision:
 
     def test_happy_path_with_env_vars(self, mocker: MockerFixture) -> None:
         mocks = self._mock_modules(mocker)
-        mock_write_env = mocker.patch("devbox.core._write_env_file")
+        mock_write_env = mocker.patch("devbox.providers.local.write_env_file")
         provider = LocalProvider()
         preset = _minimal_preset(env_vars={"MY_TOKEN": "op://vault/item/field"})
 
@@ -209,7 +206,7 @@ class TestLocalProviderProvision:
 
     def test_write_env_file_delegated_to_core(self, mocker: MockerFixture) -> None:
         self._mock_modules(mocker)
-        mock_write_env = mocker.patch("devbox.core._write_env_file")
+        mock_write_env = mocker.patch("devbox.providers.local.write_env_file")
         provider = LocalProvider()
         preset = _minimal_preset(env_vars={"SECRET": "op://v/i/f"})
 
@@ -228,6 +225,24 @@ class TestLocalProviderProvision:
 
         with pytest.raises(ValidationError):
             provider.provision("test-box", bad_preset)
+
+    def test_provision_failure_propagates_exception(self, mocker: MockerFixture) -> None:
+        """If a mid-provision step raises, the exception propagates."""
+        mocks = self._mock_modules(mocker)
+        mocks["add_ssh_key"].side_effect = RuntimeError("GitHub API unavailable")
+        provider = LocalProvider()
+        preset = _minimal_preset()
+
+        with pytest.raises(RuntimeError, match="GitHub API unavailable"):
+            provider.provision("test-box", preset)
+
+        # Steps before the failure should have been called
+        mocks["create_user"].assert_called_once()
+        mocks["generate_keypair"].assert_called_once()
+        mocks["populate_authorized_keys"].assert_called_once()
+        # Steps after the failure should NOT have been called
+        mocks["ensure_ssh_access"].assert_not_called()
+        mocks["create_profile"].assert_not_called()
 
 
 class TestLocalProviderDestroy:

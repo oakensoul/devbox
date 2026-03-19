@@ -6,16 +6,15 @@ import contextlib
 import subprocess
 
 from devbox.exceptions import MacOSUserError
-from devbox.naming import validate_name
+from devbox.naming import DX_PREFIX, validate_name
 
-_DX_PREFIX = "dx-"
 _UID_MIN = 600
 _UID_MAX = 699
 
 
 def _macos_username(name: str) -> str:
     """Return the macOS username for a devbox name."""
-    return f"{_DX_PREFIX}{name}"
+    return f"{DX_PREFIX}{name}"
 
 
 def _get_used_uids() -> set[int]:

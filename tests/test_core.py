@@ -19,12 +19,12 @@ from devbox.core import (
     _read_heartbeat,
     _safe_remove_entry,
     _shell_escape,
-    _write_env_file,
     create_devbox,
     list_devboxes,
     nuke_devbox,
     rebuild_devbox,
     sync_heartbeats,
+    write_env_file,
 )
 from devbox.exceptions import DevboxError
 from devbox.registry import DevboxStatus, Registry, RegistryEntry, save_registry
@@ -86,13 +86,13 @@ class TestShellEscape:
 
 
 # ---------------------------------------------------------------------------
-# _write_env_file
+# write_env_file
 # ---------------------------------------------------------------------------
 
 
 class TestWriteEnvFile:
     def test_writes_correct_format(self, tmp_path: Path) -> None:
-        _write_env_file(tmp_path, {"MY_VAR": "hello", "OTHER": "world"})
+        write_env_file(tmp_path, {"MY_VAR": "hello", "OTHER": "world"})
         env_path = tmp_path / ".devbox-env"
         content = env_path.read_text(encoding="utf-8")
         assert "export MY_VAR='hello'" in content
@@ -100,18 +100,18 @@ class TestWriteEnvFile:
         assert content.endswith("\n")
 
     def test_sets_permissions_0600(self, tmp_path: Path) -> None:
-        _write_env_file(tmp_path, {"KEY": "val"})
+        write_env_file(tmp_path, {"KEY": "val"})
         env_path = tmp_path / ".devbox-env"
         mode = os.stat(env_path).st_mode & 0o777
         assert mode == 0o600
 
     def test_empty_dict_writes_newline_only(self, tmp_path: Path) -> None:
-        _write_env_file(tmp_path, {})
+        write_env_file(tmp_path, {})
         env_path = tmp_path / ".devbox-env"
         assert env_path.read_text(encoding="utf-8") == "\n"
 
     def test_escapes_single_quotes_in_values(self, tmp_path: Path) -> None:
-        _write_env_file(tmp_path, {"TOKEN": "it's-a-secret"})
+        write_env_file(tmp_path, {"TOKEN": "it's-a-secret"})
         content = (tmp_path / ".devbox-env").read_text(encoding="utf-8")
         assert "export TOKEN='it'\"'\"'s-a-secret'" in content
 
@@ -119,21 +119,21 @@ class TestWriteEnvFile:
         self, tmp_path: Path, mocker: MockerFixture
     ) -> None:
         mock_chown = mocker.patch("devbox.core.ssh.chown_path")
-        _write_env_file(tmp_path, {"KEY": "val"}, target_user="dx-mybox")
+        write_env_file(tmp_path, {"KEY": "val"}, target_user="dx-mybox")
         mock_chown.assert_called_once_with(tmp_path / ".devbox-env", "dx-mybox")
 
     def test_no_chown_when_target_user_none(
         self, tmp_path: Path, mocker: MockerFixture
     ) -> None:
         mock_chown = mocker.patch("devbox.core.ssh.chown_path")
-        _write_env_file(tmp_path, {"KEY": "val"})
+        write_env_file(tmp_path, {"KEY": "val"})
         mock_chown.assert_not_called()
 
     def test_no_chown_when_target_user_omitted(
         self, tmp_path: Path, mocker: MockerFixture
     ) -> None:
         mock_chown = mocker.patch("devbox.core.ssh.chown_path")
-        _write_env_file(tmp_path, {"KEY": "val"}, target_user=None)
+        write_env_file(tmp_path, {"KEY": "val"}, target_user=None)
         mock_chown.assert_not_called()
 
 
@@ -343,8 +343,8 @@ class TestCreateDevbox:
         mocker.patch("devbox.core.iterm2.create_profile")
         mocker.patch("devbox.core.iterm2.remove_profile")
         mocker.patch("devbox.core.macos.delete_user")
-        # _write_env_file writes to /Users/dx-mybox which won't exist; mock it
-        mocker.patch("devbox.core._write_env_file")
+        # write_env_file writes to /Users/dx-mybox which won't exist; mock it
+        mocker.patch("devbox.core.write_env_file")
 
         return {
             "presets_dir": presets_dir,
@@ -467,7 +467,7 @@ class TestCreateDevbox:
             setup["presets_dir"], "no-env", env_vars={}
         )
         _make_registry(setup["registry_path"], [])
-        mock_write = mocker.patch("devbox.core._write_env_file")
+        mock_write = mocker.patch("devbox.core.write_env_file")
         create_devbox(
             "mybox",
             "no-env",
@@ -489,7 +489,7 @@ class TestCreateDevbox:
             "devbox.core.onepassword.resolve_env_vars",
             return_value={"SECRET": "resolved-value"},
         )
-        mock_write = mocker.patch("devbox.core._write_env_file")
+        mock_write = mocker.patch("devbox.core.write_env_file")
         create_devbox(
             "mybox",
             "with-env",
@@ -829,6 +829,21 @@ class TestNukeDevbox:
         assert len(errors) == 1
         assert "unexpected" in errors[0]
 
+    def test_load_preset_failure_during_github_key_removal(
+        self, setup: dict[str, Any], mocker: MockerFixture
+    ) -> None:
+        """If load_preset fails during GitHub key removal, error is captured and nuke continues."""
+        mocker.patch(
+            "devbox.core.load_preset",
+            side_effect=DevboxError("preset file missing"),
+        )
+        errors = nuke_devbox("mybox", registry_path=setup["registry_path"])
+        assert any("preset file missing" in e for e in errors)
+        from devbox.registry import find_entry
+
+        # Non-critical failure: registry entry should still be removed
+        assert find_entry("mybox", setup["registry_path"]) is None
+
 
 # ---------------------------------------------------------------------------
 # rebuild_devbox
@@ -847,7 +862,13 @@ class TestRebuildDevbox:
             [_entry("mybox", status=DevboxStatus.READY, github_key_id="999")],
         )
 
-        mock_nuke = mocker.patch("devbox.core.nuke_devbox")
+        def fake_nuke(name: str, registry_path: Path | None = None) -> list[str]:
+            from devbox.registry import remove_entry
+
+            remove_entry(name, registry_path)
+            return []
+
+        mock_nuke = mocker.patch("devbox.core.nuke_devbox", side_effect=fake_nuke)
         mock_create = mocker.patch(
             "devbox.core.create_devbox",
             return_value={"name": "mybox", "status": "ready"},
@@ -887,7 +908,13 @@ class TestRebuildDevbox:
             [_entry("mybox", preset="custom-preset", status=DevboxStatus.READY)],
         )
 
-        mocker.patch("devbox.core.nuke_devbox")
+        def fake_nuke(name: str, registry_path: Path | None = None) -> list[str]:
+            from devbox.registry import remove_entry
+
+            remove_entry(name, registry_path)
+            return []
+
+        mocker.patch("devbox.core.nuke_devbox", side_effect=fake_nuke)
         mock_create = mocker.patch(
             "devbox.core.create_devbox",
             return_value={"name": "mybox"},
@@ -898,3 +925,25 @@ class TestRebuildDevbox:
         mock_create.assert_called_once_with(
             "mybox", "custom-preset", registry_path, presets_dir
         )
+
+    def test_nuke_critical_failure_raises(
+        self, tmp_path: Path, mocker: MockerFixture
+    ) -> None:
+        """If nuke leaves the registry entry (critical failure), rebuild raises DevboxError."""
+        registry_path = tmp_path / "registry.json"
+        _make_registry(
+            registry_path,
+            [_entry("mybox", status=DevboxStatus.READY, github_key_id="999")],
+        )
+
+        # nuke_devbox runs but leaves entry in 'nuking' state (critical failure)
+        def fake_nuke(name: str, registry_path: Path | None = None) -> list[str]:
+            from devbox.registry import update_entry
+
+            update_entry(name, registry_path, status=DevboxStatus.NUKING)
+            return ["macOS user deletion: user stuck"]
+
+        mocker.patch("devbox.core.nuke_devbox", side_effect=fake_nuke)
+
+        with pytest.raises(DevboxError, match="nuke failed to fully clean up"):
+            rebuild_devbox("mybox", registry_path=registry_path)
