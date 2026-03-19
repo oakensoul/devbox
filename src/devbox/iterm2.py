@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
 
-def create_profile(name: str) -> None:
+
+def create_profile(name: str, preset: dict[str, Any]) -> None:
     """Create an iTerm2 dynamic profile for the devbox."""
     raise NotImplementedError
 
