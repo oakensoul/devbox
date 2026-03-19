@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 from devbox.exceptions import PresetError
 from devbox.naming import validate_name
 
 PRESETS_DIR = Path.home() / ".dotfiles-private" / "devbox" / "presets"
+
+_PACKAGE_NAME_RE = re.compile(r"^[a-zA-Z0-9@_./-]+$")
+_GITHUB_ACCOUNT_RE = re.compile(r"^[a-zA-Z0-9-]+$")
 
 
 class Preset(BaseModel):
@@ -33,6 +37,25 @@ class Preset(BaseModel):
     pip_globals: list[str] = []
     mcp_profile: str = ""
     env_vars: dict[str, str] = {}
+
+    @field_validator("brew_extras", "npm_globals", "pip_globals", mode="before")
+    @classmethod
+    def validate_package_names(cls, v: list[str]) -> list[str]:
+        """Reject package names that could cause injection in subprocess calls."""
+        for pkg in v:
+            if not _PACKAGE_NAME_RE.match(pkg) or pkg.startswith("-"):
+                msg = f"Invalid package name: {pkg!r}"
+                raise ValueError(msg)
+        return v
+
+    @field_validator("github_account")
+    @classmethod
+    def validate_github_account(cls, v: str) -> str:
+        """Reject GitHub account names with special characters."""
+        if not _GITHUB_ACCOUNT_RE.match(v):
+            msg = f"Invalid GitHub account: {v!r}"
+            raise ValueError(msg)
+        return v
 
 
 def load_preset(name: str, presets_dir: Path | None = None) -> Preset:
@@ -62,7 +85,14 @@ def load_preset(name: str, presets_dir: Path | None = None) -> Preset:
     except json.JSONDecodeError as exc:
         raise PresetError(f"Invalid JSON in preset {name!r}: {exc}") from exc
 
-    return validate_preset(data)
+    preset = validate_preset(data)
+
+    if preset.name != name:
+        raise PresetError(
+            f"Preset name {preset.name!r} does not match filename {name!r}"
+        )
+
+    return preset
 
 
 def validate_preset(data: dict[str, Any]) -> Preset:
@@ -86,4 +116,11 @@ def list_presets(presets_dir: Path | None = None) -> list[str]:
     if not directory.is_dir():
         return []
 
-    return sorted(p.stem for p in directory.glob("*.json"))
+    names = []
+    for p in directory.glob("*.json"):
+        try:
+            validate_name(p.stem)
+            names.append(p.stem)
+        except ValueError:
+            continue
+    return sorted(names)
