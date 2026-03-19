@@ -5,18 +5,20 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 import stat
 import tempfile
 from enum import StrEnum
 from pathlib import Path
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, field_validator
 
 from devbox.exceptions import RegistryError
 
 REGISTRY_PATH = Path.home() / ".devbox" / "registry.json"
 
 _UPDATABLE_FIELDS = frozenset({"preset", "status", "created", "last_seen", "github_key_id"})
+_GITHUB_KEY_ID_RE = re.compile(r"^\d+$")
 
 
 class DevboxStatus(StrEnum):
@@ -37,6 +39,15 @@ class RegistryEntry(BaseModel):
     last_seen: str | None = None  # ISO datetime
     github_key_id: str | None = None
 
+    @field_validator("github_key_id")
+    @classmethod
+    def validate_github_key_id(cls, v: str | None) -> str | None:
+        """GitHub key IDs are numeric strings."""
+        if v is not None and not _GITHUB_KEY_ID_RE.match(v):
+            msg = f"Invalid github_key_id: must be numeric, got {v!r}"
+            raise ValueError(msg)
+        return v
+
 
 class Registry(BaseModel):
     """Top-level registry schema."""
@@ -45,10 +56,18 @@ class Registry(BaseModel):
     devboxes: list[RegistryEntry] = []
 
 
+def _ensure_dir(directory: Path) -> None:
+    """Create directory with 0o700 or tighten existing permissions."""
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    current = directory.stat().st_mode & 0o777
+    if current != 0o700:
+        os.chmod(directory, 0o700)
+
+
 def load_registry(path: Path | None = None) -> Registry:
     """Load the registry from disk. Returns empty registry if file missing."""
     registry_path = path or REGISTRY_PATH
-    registry_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    _ensure_dir(registry_path.parent)
 
     if not registry_path.exists():
         return Registry()
@@ -72,7 +91,7 @@ def load_registry(path: Path | None = None) -> Registry:
 def save_registry(registry: Registry, path: Path | None = None) -> None:
     """Atomic write: write to temp file in same dir, then os.replace."""
     registry_path = path or REGISTRY_PATH
-    registry_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    _ensure_dir(registry_path.parent)
 
     content = registry.model_dump_json(indent=2) + "\n"
 
