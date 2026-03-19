@@ -141,3 +141,19 @@ class TestRemoveSSHKey:
 
         with pytest.raises(GitHubError, match="request failed"):
             remove_ssh_key("12345", "octocat")
+
+    def test_invalid_key_id_raises(self) -> None:
+        with pytest.raises(GitHubError, match="Invalid key ID"):
+            remove_ssh_key("not-a-number", "octocat")
+
+    def test_path_traversal_key_id_raises(self) -> None:
+        with pytest.raises(GitHubError, match="Invalid key ID"):
+            remove_ssh_key("123/../../orgs", "octocat")
+
+    def test_rate_limit_raises(self, mocker: MockerFixture) -> None:
+        mocker.patch("devbox.github._get_token", return_value="ghp_test")
+        mock_delete = mocker.patch("devbox.github.requests.delete")
+        mock_delete.return_value = MagicMock(status_code=403)
+
+        with pytest.raises(GitHubError, match="rate limit"):
+            remove_ssh_key("12345", "octocat")

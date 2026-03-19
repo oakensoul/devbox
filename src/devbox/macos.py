@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import subprocess
 
 from devbox.exceptions import MacOSUserError
@@ -88,14 +89,27 @@ def _run_cmd(cmd: list[str], error_msg: str) -> None:
         )
 
 
+def _validate_home_dir(home_dir: str) -> None:
+    """Defense-in-depth: ensure home_dir is a safe path before sudo rm -rf."""
+    if not home_dir.startswith("/Users/dx-"):
+        raise MacOSUserError(f"Refusing to operate on path outside /Users/dx-*: {home_dir}")
+    if ".." in home_dir:
+        raise MacOSUserError(f"Path traversal detected in home directory: {home_dir}")
+
+
 def _user_exists(username: str) -> bool:
     """Check if a macOS user exists."""
-    result = subprocess.run(
-        ["dscl", ".", "-read", f"/Users/{username}"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
+    try:
+        result = subprocess.run(
+            ["dscl", ".", "-read", f"/Users/{username}"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except FileNotFoundError:
+        raise MacOSUserError("dscl is not available on this system") from None
+    except subprocess.TimeoutExpired:
+        raise MacOSUserError("dscl timed out checking user existence") from None
     return result.returncode == 0
 
 
@@ -117,17 +131,22 @@ def create_user(name: str) -> str:
 
     uid = _next_uid()
 
-    _run_dscl(["-create", f"/Users/{username}"])
-    _run_dscl(["-create", f"/Users/{username}", "UniqueID", str(uid)])
-    _run_dscl(["-create", f"/Users/{username}", "PrimaryGroupID", "20"])
-    _run_dscl(["-create", f"/Users/{username}", "UserShell", "/bin/zsh"])
-    _run_dscl(["-create", f"/Users/{username}", "NFSHomeDirectory", home_dir])
-    _run_dscl(["-create", f"/Users/{username}", "RealName", f"Devbox {name}"])
-
-    _run_cmd(
-        ["createhomedir", "-u", username],
-        f"Failed to create home directory for {username}",
-    )
+    try:
+        _run_dscl(["-create", f"/Users/{username}"])
+        _run_dscl(["-create", f"/Users/{username}", "UniqueID", str(uid)])
+        _run_dscl(["-create", f"/Users/{username}", "PrimaryGroupID", "20"])
+        _run_dscl(["-create", f"/Users/{username}", "UserShell", "/bin/zsh"])
+        _run_dscl(["-create", f"/Users/{username}", "NFSHomeDirectory", home_dir])
+        _run_dscl(["-create", f"/Users/{username}", "RealName", f"Devbox {name}"])
+        _run_cmd(
+            ["createhomedir", "-u", username],
+            f"Failed to create home directory for {username}",
+        )
+    except MacOSUserError:
+        # Roll back partial user creation
+        with contextlib.suppress(MacOSUserError):
+            _run_dscl(["-delete", f"/Users/{username}"])
+        raise
 
     return username
 
@@ -147,6 +166,7 @@ def delete_user(name: str) -> None:
 
     _run_dscl(["-delete", f"/Users/{username}"])
 
+    _validate_home_dir(home_dir)
     _run_cmd(
         ["rm", "-rf", home_dir],
         f"Failed to remove home directory {home_dir}",

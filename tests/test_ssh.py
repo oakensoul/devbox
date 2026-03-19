@@ -59,6 +59,15 @@ class TestGenerateKeypair:
         with pytest.raises(SSHError, match="ssh-keygen is not available"):
             generate_keypair(home)
 
+    def test_raises_on_nonzero_exit(self, tmp_path: Path, mocker: MockerFixture) -> None:
+        home = tmp_path / "dx-dev1"
+        home.mkdir()
+        mock_run = mocker.patch("devbox.ssh.subprocess.run")
+        mock_run.return_value = MagicMock(returncode=1)
+
+        with pytest.raises(SSHError, match="ssh-keygen failed"):
+            generate_keypair(home)
+
     def test_raises_on_timeout(self, tmp_path: Path, mocker: MockerFixture) -> None:
         home = tmp_path / "dx-dev1"
         home.mkdir()
@@ -242,3 +251,15 @@ class TestPopulateAuthorizedKeys:
 
         ssh_dir = home / ".ssh"
         assert (ssh_dir.stat().st_mode & 0o777) == 0o700
+
+    def test_invalid_github_user_raises(self, tmp_path: Path) -> None:
+        home = tmp_path / "dx-dev1"
+        home.mkdir()
+        with pytest.raises(SSHError, match="Invalid GitHub username"):
+            populate_authorized_keys(home, github_user="user; echo pwned")
+
+    def test_path_traversal_github_user_raises(self, tmp_path: Path) -> None:
+        home = tmp_path / "dx-dev1"
+        home.mkdir()
+        with pytest.raises(SSHError, match="Invalid GitHub username"):
+            populate_authorized_keys(home, github_user="../../etc/passwd")

@@ -18,6 +18,7 @@ def _get_token(github_account: str) -> str:
 
 
 def _headers(token: str) -> dict[str, str]:
+    """Build GitHub API request headers with Bearer auth."""
     return {
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json",
@@ -71,6 +72,9 @@ def remove_ssh_key(key_id: str, github_account: str) -> None:
     Idempotent — does not raise if the key is already gone (404).
     Raises :exc:`GitHubError` on other failures.
     """
+    if not key_id.isdigit():
+        raise GitHubError(f"Invalid key ID: {key_id!r} (must be numeric)")
+
     token = _get_token(github_account)
     url = f"{_GITHUB_API}/user/keys/{key_id}"
 
@@ -88,6 +92,9 @@ def remove_ssh_key(key_id: str, github_account: str) -> None:
 
     if response.status_code == 401:
         raise GitHubError("GitHub authentication failed — check your token")
+
+    if response.status_code == 403:
+        raise GitHubError("GitHub API rate limit exceeded or forbidden")
 
     if response.status_code not in (204, 200):
         raise GitHubError(

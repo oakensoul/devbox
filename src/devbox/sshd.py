@@ -2,11 +2,22 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 
 from devbox.exceptions import SshdError
 
 _SSH_GROUP = "com.apple.access_ssh"
+_DX_USERNAME_RE = re.compile(r"^dx-[a-z0-9]+(-[a-z0-9]+)*$")
+
+
+def _validate_username(username: str) -> None:
+    """Ensure username is a valid dx- prefixed devbox username."""
+    if not _DX_USERNAME_RE.match(username):
+        raise SshdError(
+            f"Invalid devbox username: {username!r}. "
+            "Must be dx- followed by a valid kebab-case name."
+        )
 
 
 def _run(cmd: list[str], error_msg: str) -> subprocess.CompletedProcess[str]:
@@ -33,6 +44,7 @@ def is_remote_login_enabled() -> bool:
 
 def is_user_in_ssh_group(username: str) -> bool:
     """Check if a user is in the SSH access group."""
+    _validate_username(username)
     result = _run(
         ["dseditgroup", "-o", "checkmember", "-m", username, _SSH_GROUP],
         f"Failed to check SSH group membership for {username}",
@@ -48,6 +60,7 @@ def add_user_to_ssh_group(username: str) -> None:
 
     Raises :exc:`SshdError` on failure.
     """
+    _validate_username(username)
     if is_user_in_ssh_group(username):
         return  # already a member
 
@@ -67,6 +80,7 @@ def remove_user_from_ssh_group(username: str) -> None:
 
     Idempotent — does not raise if the user is not in the group.
     """
+    _validate_username(username)
     if not is_user_in_ssh_group(username):
         return
 
@@ -87,6 +101,7 @@ def ensure_ssh_access(username: str) -> None:
     Checks that Remote Login is enabled and adds the user to the SSH access
     group if needed. Raises :exc:`SshdError` if Remote Login is disabled.
     """
+    _validate_username(username)
     if not is_remote_login_enabled():
         raise SshdError(
             "Remote Login (sshd) is not enabled. "

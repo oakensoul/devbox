@@ -147,3 +147,67 @@ class TestDeleteUser:
     def test_invalid_name_raises(self) -> None:
         with pytest.raises(ValueError, match="kebab-case"):
             delete_user("Bad_Name")
+
+
+class TestCreateUserRollback:
+    def test_rolls_back_on_dscl_failure(self, mocker: MockerFixture) -> None:
+        mocker.patch("devbox.macos._user_exists", return_value=False)
+        mocker.patch("devbox.macos._get_used_uids", return_value=set())
+
+        call_count = 0
+
+        def fail_on_third(*args: object, **kwargs: object) -> MagicMock:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 3:  # fail on PrimaryGroupID
+                return MagicMock(returncode=1)
+            return MagicMock(returncode=0, stdout="")
+
+        mock_run = mocker.patch("devbox.macos.subprocess.run", side_effect=fail_on_third)
+
+        with pytest.raises(MacOSUserError, match="dscl failed"):
+            create_user("dev1")
+
+        # Verify cleanup was attempted (-delete call)
+        calls = mock_run.call_args_list
+        assert any("-delete" in str(c) for c in calls)
+
+
+class TestUserExistsErrorHandling:
+    def test_dscl_not_found(self, mocker: MockerFixture) -> None:
+        mocker.patch("devbox.macos.subprocess.run", side_effect=FileNotFoundError)
+        from devbox.macos import _user_exists
+
+        with pytest.raises(MacOSUserError, match="dscl is not available"):
+            _user_exists("dx-dev1")
+
+    def test_dscl_timeout(self, mocker: MockerFixture) -> None:
+        import subprocess as sp
+
+        mocker.patch(
+            "devbox.macos.subprocess.run",
+            side_effect=sp.TimeoutExpired(cmd="dscl", timeout=10),
+        )
+        from devbox.macos import _user_exists
+
+        with pytest.raises(MacOSUserError, match="timed out"):
+            _user_exists("dx-dev1")
+
+
+class TestPathValidation:
+    def test_rejects_non_dx_path(self) -> None:
+        from devbox.macos import _validate_home_dir
+
+        with pytest.raises(MacOSUserError, match="Refusing to operate"):
+            _validate_home_dir("/Users/admin")
+
+    def test_rejects_traversal(self) -> None:
+        from devbox.macos import _validate_home_dir
+
+        with pytest.raises(MacOSUserError, match="Path traversal"):
+            _validate_home_dir("/Users/dx-../etc")
+
+    def test_accepts_valid_path(self) -> None:
+        from devbox.macos import _validate_home_dir
+
+        _validate_home_dir("/Users/dx-my-devbox")  # should not raise
