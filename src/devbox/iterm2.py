@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from devbox.exceptions import ITermError
-from devbox.naming import validate_name
+from devbox.naming import DX_PREFIX, validate_name
 from devbox.presets import Preset
 
 PROFILES_DIR = (
@@ -32,7 +32,7 @@ def _profile_path(name: str, profiles_dir: Path | None = None) -> Path:
 
 def _build_profile(name: str, preset: Preset) -> dict[str, Any]:
     """Build the iTerm2 dynamic profile dict."""
-    username = f"dx-{name}"
+    username = f"{DX_PREFIX}{name}"
     color_preset = _COLOR_PRESETS.get(preset.color_scheme, preset.color_scheme)
 
     profile: dict[str, object] = {

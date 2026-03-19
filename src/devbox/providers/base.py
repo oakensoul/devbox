@@ -10,7 +10,7 @@ class Provider(ABC):
     """Base class for devbox providers."""
 
     @abstractmethod
-    def provision(self, name: str, preset: dict[str, Any]) -> None:
+    def provision(self, name: str, preset: dict[str, Any]) -> dict[str, Any]:
         """Provision a new devbox environment."""
 
     @abstractmethod
