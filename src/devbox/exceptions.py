@@ -37,5 +37,17 @@ class ITermError(DevboxError):
     """iTerm2 profile errors."""
 
 
+class SudoersError(DevboxError):
+    """Sudoers configuration errors."""
+
+
 class SshdError(DevboxError):
     """sshd configuration errors."""
+
+
+class BootstrapError(DevboxError):
+    """Bootstrap step failures — nvm, pyenv, brew, npm, pip."""
+
+
+class AuthError(DevboxError):
+    """Authentication injection failures — API keys, AWS credentials."""

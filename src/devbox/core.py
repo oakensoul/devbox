@@ -6,13 +6,16 @@ import contextlib
 import logging
 import os
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
 from typing import Any
 
 from devbox import github, iterm2, macos, onepassword, ssh, sshd
+from devbox.auth import inject_auth
+from devbox.bootstrap import bootstrap_user
 from devbox.exceptions import DevboxError
+from devbox.health import format_last_seen, get_health, read_heartbeat
 from devbox.naming import DX_PREFIX, validate_name
 from devbox.presets import load_preset
 from devbox.registry import (
@@ -24,10 +27,10 @@ from devbox.registry import (
     remove_entry,
     update_entry,
 )
+from devbox.utils import shell_escape
+from devbox.zshrc import write_zshrc
 
 logger = logging.getLogger(__name__)
-
-_ATROPHY_DAYS = 30
 
 
 def write_env_file(
@@ -39,61 +42,12 @@ def write_env_file(
     devbox account can read it when .zshrc sources it.
     """
     env_path = home_dir / ".devbox-env"
-    lines = [f"export {key}={_shell_escape(value)}" for key, value in resolved_env.items()]
-    env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    os.chmod(env_path, 0o600)
+    lines = [f"export {key}={shell_escape(value)}" for key, value in resolved_env.items()]
+    fd = os.open(str(env_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
     if target_user is not None:
         ssh.chown_path(env_path, target_user)
-
-
-def _shell_escape(value: str) -> str:
-    """Wrap a value in single quotes, escaping embedded single quotes."""
-    return "'" + value.replace("'", "'\"'\"'") + "'"
-
-
-def _read_heartbeat(name: str) -> datetime | None:
-    """Read the heartbeat timestamp for a devbox user."""
-    heartbeat_path = Path(f"/Users/{DX_PREFIX}{name}/.devbox_heartbeat")
-    if not heartbeat_path.exists():
-        return None
-    try:
-        text = heartbeat_path.read_text(encoding="utf-8").strip()
-        return datetime.fromisoformat(text)
-    except (OSError, ValueError):
-        return None
-
-
-def _health_status(last_seen: datetime | None) -> str:
-    """Determine health status from last_seen timestamp."""
-    if last_seen is None:
-        return "unknown"
-    now = datetime.now(UTC)
-    # Ensure last_seen is tz-aware for comparison
-    if last_seen.tzinfo is None:
-        last_seen = last_seen.replace(tzinfo=UTC)
-    age = now - last_seen
-    if age > timedelta(days=_ATROPHY_DAYS):
-        return "atrophied"
-    return "healthy"
-
-
-def _format_last_seen(last_seen: datetime | None) -> str:
-    """Format last_seen as a human-readable relative time."""
-    if last_seen is None:
-        return "never"
-    now = datetime.now(UTC)
-    if last_seen.tzinfo is None:
-        last_seen = last_seen.replace(tzinfo=UTC)
-    delta = now - last_seen
-    if delta.days > 0:
-        return f"{delta.days}d ago"
-    hours = delta.seconds // 3600
-    if hours > 0:
-        return f"{hours}h ago"
-    minutes = delta.seconds // 60
-    if minutes > 0:
-        return f"{minutes}m ago"
-    return "just now"
 
 
 class _CompensationStack:
@@ -130,6 +84,7 @@ def create_devbox(
     preset: str,
     registry_path: Path | None = None,
     presets_dir: Path | None = None,
+    dry_run: bool = False,
 ) -> dict[str, Any]:
     """Create a new devbox from the given preset.
 
@@ -138,6 +93,9 @@ def create_devbox(
 
     On failure at any step, the compensation stack rolls back all
     completed steps in reverse order.
+
+    When *dry_run* is True, validates inputs and reports the actions
+    that would be taken without executing any side effects.
 
     Returns the registry entry as a dict.
     """
@@ -148,6 +106,31 @@ def create_devbox(
     existing = find_entry(name, registry_path)
     if existing is not None:
         raise DevboxError(f"Devbox {name!r} already exists (status: {existing.status})")
+
+    if dry_run:
+        username = f"{DX_PREFIX}{name}"
+        actions: list[str] = [
+            f"Would create registry entry for {name!r}",
+            f"Would create macOS user {username}",
+            f"Would generate SSH keypair at /Users/{username}/.ssh/",
+            "Would populate authorized_keys from parent GitHub account",
+            f"Would register SSH key with GitHub account {preset_obj.github_account}",
+            f"Would resolve {len(preset_obj.env_vars)} environment variables",
+            "Would inject Claude Code auth credentials",
+            "Would bootstrap development tools (nvm, pyenv, brew extras)",
+            "Would write .zshrc with heartbeat hook",
+            f"Would ensure SSH access for {username}",
+            f"Would create iTerm2 profile devbox::{name}",
+            "Would disable password authentication",
+        ]
+        for action in actions:
+            logger.info(action)
+        return {
+            "name": name,
+            "preset": preset,
+            "status": "dry-run",
+            "actions": actions,
+        }
 
     compensation = _CompensationStack()
     today = datetime.now(UTC).strftime("%Y-%m-%d")
@@ -173,9 +156,7 @@ def create_devbox(
 
         # Step 5: Register SSH key with GitHub
         key_title = f"devbox:{name}"
-        github_key_id = github.add_ssh_key(
-            key_title, public_key, preset_obj.github_account
-        )
+        github_key_id = github.add_ssh_key(key_title, public_key, preset_obj.github_account)
         compensation.push(
             "remove GitHub SSH key",
             partial(github.remove_ssh_key, github_key_id, preset_obj.github_account),
@@ -187,21 +168,35 @@ def create_devbox(
             resolved = onepassword.resolve_env_vars(preset_obj.env_vars)
             write_env_file(home_dir, resolved, target_user=username)
 
-        # TODO(milestone-5): Bootstrap user (nvm, pyenv, brew extras, pip/npm globals)
-        # TODO(milestone-5): Inject Claude Code auth from parent user
+        # Step 7: Inject Claude Code auth
+        try:
+            inject_auth(home_dir, preset_obj, username)
+        except DevboxError as exc:
+            logger.warning("Auth injection failed (non-fatal): %s", exc)
 
-        # Step 7: Ensure SSH access
+        # Step 8: Bootstrap user (nvm, pyenv, brew extras, pip/npm globals)
+        warnings = bootstrap_user(home_dir, preset_obj, username)
+        for w in warnings:
+            logger.warning("Bootstrap: %s", w)
+
+        # Step 9: Write .zshrc (heartbeat hook + env sourcing)
+        try:
+            write_zshrc(home_dir, name, username)
+        except DevboxError as exc:
+            logger.warning("zshrc write failed (non-fatal): %s", exc)
+
+        # Step 10: Ensure SSH access
         sshd.ensure_ssh_access(username)
         compensation.push(
             f"remove {username} from SSH group",
             partial(sshd.remove_user_from_ssh_group, username),
         )
 
-        # Step 8: Create iTerm2 profile
+        # Step 11: Create iTerm2 profile
         iterm2.create_profile(name, preset_obj)
         compensation.push("remove iTerm2 profile", partial(iterm2.remove_profile, name))
 
-        # Step 9: Mark ready
+        # Step 12: Mark ready
         update_entry(name, registry_path, status=DevboxStatus.READY)
 
     except Exception:
@@ -212,8 +207,13 @@ def create_devbox(
     return updated.model_dump() if updated else entry.model_dump()
 
 
-def list_devboxes(registry_path: Path | None = None) -> list[dict[str, Any]]:
+def list_devboxes(
+    registry_path: Path | None = None, *, check_ssh: bool = False
+) -> list[dict[str, Any]]:
     """Return all registered devboxes with health status.
+
+    When *check_ssh* is ``True``, each ready devbox is also probed via
+    SSH and marked ``"unreachable"`` if the probe fails.
 
     Reads heartbeat files and computes health for each entry.
     Does not modify the registry — use :func:`sync_heartbeats` to persist
@@ -223,20 +223,23 @@ def list_devboxes(registry_path: Path | None = None) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
 
     for entry in registry.devboxes:
-        heartbeat = _read_heartbeat(entry.name)
+        heartbeat = read_heartbeat(entry.name)
 
         last_seen_dt = heartbeat or (
             datetime.fromisoformat(entry.last_seen) if entry.last_seen else None
         )
-        health = _health_status(last_seen_dt)
+        should_check = check_ssh and entry.status == DevboxStatus.READY
+        health = get_health(entry.name, last_seen_dt, check_ssh_flag=should_check)
 
-        results.append({
-            "name": entry.name,
-            "preset": entry.preset,
-            "created": entry.created,
-            "last_seen": _format_last_seen(last_seen_dt),
-            "status": health if entry.status == DevboxStatus.READY else entry.status.value,
-        })
+        results.append(
+            {
+                "name": entry.name,
+                "preset": entry.preset,
+                "created": entry.created,
+                "last_seen": format_last_seen(last_seen_dt),
+                "status": health if entry.status == DevboxStatus.READY else entry.status.value,
+            }
+        )
 
     return results
 
@@ -248,7 +251,7 @@ def sync_heartbeats(registry_path: Path | None = None) -> None:
     """
     registry = load_registry(registry_path)
     for entry in registry.devboxes:
-        heartbeat = _read_heartbeat(entry.name)
+        heartbeat = read_heartbeat(entry.name)
         if heartbeat is not None:
             with contextlib.suppress(DevboxError):
                 update_entry(entry.name, registry_path, last_seen=heartbeat.isoformat())
@@ -257,6 +260,7 @@ def sync_heartbeats(registry_path: Path | None = None) -> None:
 def nuke_devbox(
     name: str,
     registry_path: Path | None = None,
+    dry_run: bool = False,
 ) -> list[str]:
     """Destroy a devbox and clean up all resources.
 
@@ -266,11 +270,33 @@ def nuke_devbox(
     Returns a list of non-fatal cleanup errors (empty on full success).
     If critical cleanup steps fail, the registry entry is kept in 'nuking'
     state so the user can retry.
+
+    When *dry_run* is True, validates inputs and reports the cleanup
+    steps that would be taken without executing any side effects.
     """
     validate_name(name)
     entry = find_entry(name, registry_path)
     if entry is None:
         raise DevboxError(f"Devbox {name!r} not found in registry")
+
+    if dry_run:
+        username = f"{DX_PREFIX}{name}"
+        actions: list[str] = [
+            f"Would mark devbox {name!r} as nuking",
+        ]
+        if entry.github_key_id:
+            actions.append(f"Would remove GitHub SSH key {entry.github_key_id}")
+        actions.extend(
+            [
+                f"Would remove {username} from SSH access group",
+                f"Would delete macOS user {username} and home directory",
+                f"Would remove iTerm2 profile devbox::{name}",
+                f"Would remove registry entry for {name!r}",
+            ]
+        )
+        for action in actions:
+            logger.info(action)
+        return actions
 
     # Mark as nuking
     update_entry(name, registry_path, status=DevboxStatus.NUKING)

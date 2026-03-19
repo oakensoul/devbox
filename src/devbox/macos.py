@@ -145,6 +145,7 @@ def create_user(name: str) -> str:
             ["createhomedir", "-u", username],
             f"Failed to create home directory for {username}",
         )
+        disable_password(name)
     except MacOSUserError:
         # Roll back partial user creation
         with contextlib.suppress(MacOSUserError):
@@ -152,6 +153,22 @@ def create_user(name: str) -> str:
         raise
 
     return username
+
+
+def disable_password(name: str) -> None:
+    """Disable password authentication for the devbox macOS user.
+
+    Runs ``sudo pwpolicy -u dx-<name> -disableuser`` to prevent interactive
+    login with a password.
+
+    Raises :exc:`MacOSUserError` on failure.
+    """
+    validate_name(name)
+    username = _macos_username(name)
+    _run_cmd(
+        ["pwpolicy", "-u", username, "-disableuser"],
+        f"Failed to disable password for {username}",
+    )
 
 
 def delete_user(name: str) -> None:
