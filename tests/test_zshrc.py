@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Robert Gunnar Johnson Jr.
+
 """Tests for zshrc generation and heartbeat hook management."""
 
 from __future__ import annotations
@@ -69,39 +72,29 @@ class TestGenerateZshrc:
 
 
 class TestWriteZshrc:
-    def test_creates_zshrc_file(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
+    def test_creates_zshrc_file(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mocker.patch("devbox.zshrc.chown_path")
         write_zshrc(tmp_path, "my-dev", "dx-my-dev")
         assert (tmp_path / ".zshrc").exists()
 
-    def test_file_contains_generated_content(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
+    def test_file_contains_generated_content(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mocker.patch("devbox.zshrc.chown_path")
         write_zshrc(tmp_path, "my-dev", "dx-my-dev")
         content = (tmp_path / ".zshrc").read_text(encoding="utf-8")
         assert content == generate_zshrc("my-dev")
 
-    def test_file_permissions_are_0644(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
+    def test_file_permissions_are_0644(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mocker.patch("devbox.zshrc.chown_path")
         write_zshrc(tmp_path, "my-dev", "dx-my-dev")
         mode = os.stat(tmp_path / ".zshrc").st_mode & 0o777
         assert mode == 0o644
 
-    def test_chown_called_with_correct_args(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
+    def test_chown_called_with_correct_args(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mock_chown = mocker.patch("devbox.zshrc.chown_path")
         write_zshrc(tmp_path, "my-dev", "dx-my-dev")
         mock_chown.assert_called_once_with(tmp_path / ".zshrc", "dx-my-dev")
 
-    def test_overwrites_existing_zshrc(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
+    def test_overwrites_existing_zshrc(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mocker.patch("devbox.zshrc.chown_path")
         (tmp_path / ".zshrc").write_text("old content", encoding="utf-8")
         write_zshrc(tmp_path, "my-dev", "dx-my-dev")
@@ -123,21 +116,15 @@ class TestIsHookInstalled:
         assert is_hook_installed(tmp_path) is False
 
     def test_returns_true_when_hook_present(self, tmp_path: Path) -> None:
-        (tmp_path / ".zshrc").write_text(
-            generate_zshrc("test-box"), encoding="utf-8"
-        )
+        (tmp_path / ".zshrc").write_text(generate_zshrc("test-box"), encoding="utf-8")
         assert is_hook_installed(tmp_path) is True
 
-    def test_returns_true_when_hook_among_other_content(
-        self, tmp_path: Path
-    ) -> None:
+    def test_returns_true_when_hook_among_other_content(self, tmp_path: Path) -> None:
         content = "# custom stuff\n" + HEARTBEAT_HOOK + "\n# more stuff\n"
         (tmp_path / ".zshrc").write_text(content, encoding="utf-8")
         assert is_hook_installed(tmp_path) is True
 
-    def test_idempotent_after_write(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
+    def test_idempotent_after_write(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mocker.patch("devbox.zshrc.chown_path")
         write_zshrc(tmp_path, "my-dev", "dx-my-dev")
         assert is_hook_installed(tmp_path) is True

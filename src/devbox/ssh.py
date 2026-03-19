@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Robert Gunnar Johnson Jr.
+
 """SSH key generation and authorized_keys management."""
 
 from __future__ import annotations
@@ -35,10 +38,15 @@ def generate_keypair(home_dir: Path) -> str:
     try:
         result = subprocess.run(
             [
-                "ssh-keygen", "-t", "ed25519",
-                "-f", str(key_path),
-                "-N", "",  # no passphrase
-                "-C", f"devbox-{home_dir.name}",
+                "ssh-keygen",
+                "-t",
+                "ed25519",
+                "-f",
+                str(key_path),
+                "-N",
+                "",  # no passphrase
+                "-C",
+                f"devbox-{home_dir.name}",
             ],
             capture_output=True,
             text=True,
@@ -79,10 +87,7 @@ def _get_parent_github_user() -> str:
 
     username: str | None = data.get("parent_github_user")
     if not username:
-        raise SSHError(
-            "parent_github_user not set in config. "
-            f"Add it to {_CONFIG_PATH}"
-        )
+        raise SSHError(f"parent_github_user not set in config. Add it to {_CONFIG_PATH}")
     return username
 
 
@@ -118,8 +123,7 @@ def chown_path(path: Path, username: str) -> None:
         raise SSHError("chown timed out") from None
     if result.returncode != 0:
         raise SSHError(
-            f"Failed to set ownership on {path} to {username} "
-            f"(exit code {result.returncode})"
+            f"Failed to set ownership on {path} to {username} (exit code {result.returncode})"
         )
 
 
@@ -152,9 +156,7 @@ def populate_authorized_keys(
 
     keys = _validate_ssh_keys(response.text)
     if not keys:
-        raise SSHError(
-            f"No valid SSH public keys found for GitHub user {github_user!r}"
-        )
+        raise SSHError(f"No valid SSH public keys found for GitHub user {github_user!r}")
 
     ssh_dir = home_dir / ".ssh"
     ssh_dir.mkdir(parents=True, exist_ok=True)

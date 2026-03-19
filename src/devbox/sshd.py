@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Robert Gunnar Johnson Jr.
+
 """sshd configuration for devbox users."""
 
 from __future__ import annotations
@@ -24,7 +27,10 @@ def _run(cmd: list[str], error_msg: str) -> subprocess.CompletedProcess[str]:
     """Run a command, raising SshdError on failure."""
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=30,
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
     except FileNotFoundError:
         raise SshdError(f"{error_msg}: command not found") from None
@@ -70,8 +76,7 @@ def add_user_to_ssh_group(username: str) -> None:
     )
     if result.returncode != 0:
         raise SshdError(
-            f"Failed to add {username} to SSH access group "
-            f"(exit code {result.returncode})"
+            f"Failed to add {username} to SSH access group (exit code {result.returncode})"
         )
 
 
@@ -90,8 +95,7 @@ def remove_user_from_ssh_group(username: str) -> None:
     )
     if result.returncode != 0:
         raise SshdError(
-            f"Failed to remove {username} from SSH access group "
-            f"(exit code {result.returncode})"
+            f"Failed to remove {username} from SSH access group (exit code {result.returncode})"
         )
 
 

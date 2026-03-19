@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Robert Gunnar Johnson Jr.
+
 """Tests for LocalProvider (local macOS provider)."""
 
 from __future__ import annotations
@@ -103,9 +106,7 @@ class TestLocalProviderProvision:
         result = provider.provision("test-box", preset)
 
         assert result["username"] == "dx-test-box"
-        mocks["resolve_env_vars"].assert_called_once_with(
-            {"MY_TOKEN": "op://vault/item/field"}
-        )
+        mocks["resolve_env_vars"].assert_called_once_with({"MY_TOKEN": "op://vault/item/field"})
         from pathlib import Path
 
         mock_write_env.assert_called_once_with(
@@ -118,12 +119,11 @@ class TestLocalProviderProvision:
         mocks = self._mock_modules(mocker)
         call_order: list[str] = []
 
-        def _make_side_effect(
-            label: str, ret: object = None
-        ) -> Any:
+        def _make_side_effect(label: str, ret: object = None) -> Any:
             def _side_effect(*a: object, **kw: object) -> Any:
                 call_order.append(label)
                 return ret
+
             return _side_effect
 
         mocks["create_user"].side_effect = _make_side_effect("create_user", "dx-test-box")

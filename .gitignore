@@ -33,3 +33,12 @@ build/
 *.key
 *.p12
 credentials.json
+*.secret
+*.secrets
+*.token
+*_rsa
+*_dsa
+
+# SBOM artifacts
+sbom.json
+sbom.xml

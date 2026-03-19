@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Robert Gunnar Johnson Jr.
+
 """1Password CLI (op) wrapper."""
 
 from __future__ import annotations
@@ -29,9 +32,7 @@ def get_secret(reference: str, timeout: int = 10) -> str:
     except FileNotFoundError:
         raise OnePasswordError("1Password CLI (op) is not installed") from None
     except subprocess.TimeoutExpired:
-        raise OnePasswordError(
-            "1Password CLI timed out — is the vault locked?"
-        ) from None
+        raise OnePasswordError("1Password CLI timed out — is the vault locked?") from None
 
     if result.returncode != 0:
         raise OnePasswordError(

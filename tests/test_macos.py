@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Robert Gunnar Johnson Jr.
+
 """Tests for macOS user management."""
 
 from __future__ import annotations
@@ -68,9 +71,7 @@ class TestGetUsedUids:
         assert 600 in uids
 
     def test_dscl_not_found(self, mocker: MockerFixture) -> None:
-        mocker.patch(
-            "devbox.macos.subprocess.run", side_effect=FileNotFoundError
-        )
+        mocker.patch("devbox.macos.subprocess.run", side_effect=FileNotFoundError)
         from devbox.macos import _get_used_uids
 
         with pytest.raises(MacOSUserError, match="dscl is not available"):
@@ -223,9 +224,7 @@ class TestDisablePassword:
             disable_password("dev1")
 
     def test_command_not_found(self, mocker: MockerFixture) -> None:
-        mocker.patch(
-            "devbox.macos.subprocess.run", side_effect=FileNotFoundError
-        )
+        mocker.patch("devbox.macos.subprocess.run", side_effect=FileNotFoundError)
         with pytest.raises(MacOSUserError, match="command not found"):
             disable_password("dev1")
 
