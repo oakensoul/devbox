@@ -31,14 +31,21 @@ def cli() -> None:
 @cli.command()
 @click.argument("name")
 @click.option("--preset", required=True, help="Preset name to use for provisioning.")
-def create(name: str, preset: str) -> None:
+@click.option("--dry-run", is_flag=True, default=False, help="Preview actions without executing.")
+def create(name: str, preset: str, dry_run: bool) -> None:
     """Create a new devbox."""
     try:
-        with console.status(f"[bold]Creating devbox {name!r} from preset {preset!r}..."):
-            result = create_devbox(name, preset)
-        console.print(f"[green]✓[/green] Devbox [bold]{name}[/bold] created successfully")
-        console.print(f"  Connect: [cyan]ssh dx-{name}@localhost[/cyan]")
-        console.print(f"  Status:  {result.get('status', 'ready')}")
+        if dry_run:
+            result = create_devbox(name, preset, dry_run=True)
+            console.print(f"[bold]Dry-run for creating devbox {name!r}:[/bold]")
+            for action in result.get("actions", []):
+                console.print(f"  [cyan]•[/cyan] {action}")
+        else:
+            with console.status(f"[bold]Creating devbox {name!r} from preset {preset!r}..."):
+                result = create_devbox(name, preset)
+            console.print(f"[green]✓[/green] Devbox [bold]{name}[/bold] created successfully")
+            console.print(f"  Connect: [cyan]ssh dx-{name}@localhost[/cyan]")
+            console.print(f"  Status:  {result.get('status', 'ready')}")
     except (DevboxError, ValueError) as exc:
         console.print(f"[red]✗[/red] {exc}")
         sys.exit(1)
@@ -60,27 +67,35 @@ def rebuild(name: str) -> None:
 
 @cli.command()
 @click.argument("name")
-def nuke(name: str) -> None:
+@click.option("--dry-run", is_flag=True, default=False, help="Preview actions without executing.")
+def nuke(name: str, dry_run: bool) -> None:
     """Permanently destroy a devbox and clean up all resources."""
     try:
-        with console.status(f"[bold]Nuking devbox {name!r}..."):
-            errors = nuke_devbox(name)
-        if errors:
-            console.print(f"[yellow]⚠[/yellow] Devbox [bold]{name}[/bold] nuked with warnings:")
-            for err in errors:
-                console.print(f"  [yellow]•[/yellow] {err}")
+        if dry_run:
+            actions = nuke_devbox(name, dry_run=True)
+            console.print(f"[bold]Dry-run for nuking devbox {name!r}:[/bold]")
+            for action in actions:
+                console.print(f"  [cyan]•[/cyan] {action}")
         else:
-            console.print(f"[green]✓[/green] Devbox [bold]{name}[/bold] nuked")
+            with console.status(f"[bold]Nuking devbox {name!r}..."):
+                errors = nuke_devbox(name)
+            if errors:
+                console.print(f"[yellow]⚠[/yellow] Devbox [bold]{name}[/bold] nuked with warnings:")
+                for err in errors:
+                    console.print(f"  [yellow]•[/yellow] {err}")
+            else:
+                console.print(f"[green]✓[/green] Devbox [bold]{name}[/bold] nuked")
     except (DevboxError, ValueError) as exc:
         console.print(f"[red]✗[/red] {exc}")
         sys.exit(1)
 
 
 @cli.command("list")
-def list_boxes() -> None:
+@click.option("--check", is_flag=True, default=False, help="Probe SSH connectivity.")
+def list_boxes(check: bool) -> None:
     """List all registered devboxes."""
     try:
-        entries = list_devboxes()
+        entries = list_devboxes(check_ssh=check)
     except (DevboxError, ValueError) as exc:
         console.print(f"[red]✗[/red] {exc}")
         sys.exit(1)
@@ -97,7 +112,8 @@ def list_boxes() -> None:
     table.add_column("STATUS")
 
     for entry in entries:
-        status_str = _STATUS_ICONS.get(entry["status"], entry["status"])
+        status = entry["status"]
+        status_str = _STATUS_ICONS.get(status, status)
         table.add_row(
             entry["name"],
             entry["preset"],

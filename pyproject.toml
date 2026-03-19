@@ -49,6 +49,7 @@ select = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 importmode = "importlib"
+markers = ["integration: marks tests as integration tests (deselect with '-m \"not integration\"')"]
 
 [tool.mypy]
 python_version = "3.11"
