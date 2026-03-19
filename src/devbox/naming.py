@@ -6,6 +6,9 @@ import re
 
 _KEBAB_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
+# GitHub username: alphanumeric, hyphens allowed (not leading/trailing).
+GITHUB_ACCOUNT_RE = re.compile(r"^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$")
+
 
 def validate_name(name: str) -> str:
     """Validate a devbox name is valid kebab-case.

@@ -23,6 +23,7 @@ dev = [
     "pytest-mock>=3.0",
     "ruff>=0.4",
     "mypy>=1.0",
+    "types-requests>=2.31",
 ]
 
 [tool.setuptools.packages.find]
