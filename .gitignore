@@ -23,3 +23,13 @@ build/
 # IDE files
 .idea/
 .vscode/
+
+# Claude Code
+.claude/
+
+# Secrets / credentials
+.env*
+*.pem
+*.key
+*.p12
+credentials.json

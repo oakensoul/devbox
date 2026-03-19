@@ -27,6 +27,15 @@ def validate_name(name: str) -> str:
     if not name:
         raise ValueError("Devbox name must not be empty.")
 
+    # macOS short username limit is 31 chars; with "dx-" prefix that leaves 28.
+    max_len = 31 - len(DX_PREFIX)
+    if len(name) > max_len:
+        raise ValueError(
+            f"Devbox name {name!r} is too long ({len(name)} chars). "
+            f"Maximum is {max_len} characters so the macOS username "
+            f"('{DX_PREFIX}' + name) stays within the 31-character limit."
+        )
+
     if not _KEBAB_RE.match(name):
         raise ValueError(
             f"Invalid devbox name {name!r}. "
