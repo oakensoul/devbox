@@ -10,13 +10,13 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 from devbox.exceptions import PresetError
-from devbox.naming import validate_name
+from devbox.naming import GITHUB_ACCOUNT_RE, validate_name
 
 PRESETS_DIR = Path.home() / ".dotfiles-private" / "devbox" / "presets"
 
 # Allows scoped npm (@scope/name) and brew taps (tap/formula), but rejects path traversal.
 _PACKAGE_NAME_RE = re.compile(r"^[a-zA-Z0-9@_./-]+$")
-_GITHUB_ACCOUNT_RE = re.compile(r"^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$")
+_GITHUB_ACCOUNT_RE = GITHUB_ACCOUNT_RE
 _SAFE_VALUE_RE = re.compile(r"^[a-zA-Z0-9@_./:=-]*$")
 _ENV_KEY_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 _VALID_PROVIDERS = frozenset({"local", "aws"})
