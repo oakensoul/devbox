@@ -67,6 +67,8 @@ def _run_dscl(args: list[str]) -> None:
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=30,
         )
+    except FileNotFoundError:
+        raise MacOSUserError("sudo or dscl not found") from None
     except subprocess.TimeoutExpired:
         raise MacOSUserError(f"dscl timed out: {' '.join(args)}") from None
     if result.returncode != 0:
@@ -81,6 +83,8 @@ def _run_cmd(cmd: list[str], error_msg: str) -> None:
         result = subprocess.run(
             ["sudo", *cmd], capture_output=True, text=True, timeout=30,
         )
+    except FileNotFoundError:
+        raise MacOSUserError(f"{error_msg}: command not found") from None
     except subprocess.TimeoutExpired:
         raise MacOSUserError(f"{error_msg}: timed out") from None
     if result.returncode != 0:
