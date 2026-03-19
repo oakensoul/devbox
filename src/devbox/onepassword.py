@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 
 from devbox.exceptions import OnePasswordError
+
+_OP_REF_RE = re.compile(r"^op://[\w./@-]+$")
 
 
 def get_secret(reference: str, timeout: int = 10) -> str:
@@ -12,6 +15,9 @@ def get_secret(reference: str, timeout: int = 10) -> str:
 
     Raises OnePasswordError on failure.
     """
+    if not _OP_REF_RE.match(reference):
+        raise OnePasswordError(f"Invalid 1Password reference format: {reference!r}")
+
     try:
         result = subprocess.run(
             ["op", "read", reference],
@@ -27,7 +33,10 @@ def get_secret(reference: str, timeout: int = 10) -> str:
         ) from None
 
     if result.returncode != 0:
-        raise OnePasswordError(result.stderr.strip())
+        raise OnePasswordError(
+            f"Failed to resolve 1Password reference (exit code {result.returncode}). "
+            "Check that the reference is valid and the vault is unlocked."
+        )
 
     return result.stdout.strip()
 

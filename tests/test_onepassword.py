@@ -47,7 +47,7 @@ class TestGetSecret:
             returncode=1, stderr="item not found\n"
         )
 
-        with pytest.raises(OnePasswordError, match="item not found"):
+        with pytest.raises(OnePasswordError, match="Failed to resolve 1Password reference"):
             get_secret("op://vault/item/field")
 
     def test_raises_on_timeout(self, mocker: MockerFixture) -> None:
@@ -65,6 +65,30 @@ class TestGetSecret:
 
         _, kwargs = mock_run.call_args
         assert kwargs["timeout"] == 10
+
+    def test_rejects_non_op_reference(self) -> None:
+        with pytest.raises(OnePasswordError, match="Invalid 1Password reference"):
+            get_secret("/etc/passwd")
+
+    def test_rejects_empty_reference(self) -> None:
+        with pytest.raises(OnePasswordError, match="Invalid 1Password reference"):
+            get_secret("")
+
+    def test_rejects_reference_with_spaces(self) -> None:
+        with pytest.raises(OnePasswordError, match="Invalid 1Password reference"):
+            get_secret("op://vault/item with spaces/field")
+
+    def test_error_does_not_leak_stderr(self, mocker: MockerFixture) -> None:
+        mock_run = mocker.patch("devbox.onepassword.subprocess.run")
+        mock_run.return_value = MagicMock(
+            returncode=1, stderr="[ERROR] vault 'SecretVault' item 'ApiKey': not found\n"
+        )
+
+        with pytest.raises(OnePasswordError, match="Failed to resolve") as exc_info:
+            get_secret("op://vault/item/field")
+        # Ensure stderr content is NOT in the error message
+        assert "SecretVault" not in str(exc_info.value)
+        assert "ApiKey" not in str(exc_info.value)
 
 
 class TestResolveEnvVars:

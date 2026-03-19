@@ -31,10 +31,11 @@ class TestLoadPreset:
     """load_preset reads and validates a preset file."""
 
     def test_valid_preset_loads(self, tmp_path: Path) -> None:
-        _write_preset(tmp_path, "my-preset", VALID_PRESET)
+        data = {**VALID_PRESET, "name": "my-preset"}
+        _write_preset(tmp_path, "my-preset", data)
         preset = load_preset("my-preset", presets_dir=tmp_path)
         assert isinstance(preset, Preset)
-        assert preset.name == "test-preset"
+        assert preset.name == "my-preset"
         assert preset.description == "A test preset"
         assert preset.provider == "local"
         assert preset.github_account == "octocat"
@@ -157,3 +158,49 @@ class TestListPresets:
         tmp_path.mkdir(parents=True, exist_ok=True)
         result = list_presets(presets_dir=tmp_path)
         assert result == []
+
+    def test_filters_invalid_names(self, tmp_path: Path) -> None:
+        _write_preset(tmp_path, "valid-name", VALID_PRESET)
+        (tmp_path / "Bad_Name.json").write_text("{}", encoding="utf-8")
+        (tmp_path / "ALLCAPS.json").write_text("{}", encoding="utf-8")
+        result = list_presets(presets_dir=tmp_path)
+        assert result == ["valid-name"]
+
+
+class TestPresetNameMatchesFilename:
+    """Preset name field must match the filename."""
+
+    def test_mismatched_name_raises(self, tmp_path: Path) -> None:
+        data = {**VALID_PRESET, "name": "different-name"}
+        _write_preset(tmp_path, "my-preset", data)
+        with pytest.raises(PresetError, match="does not match filename"):
+            load_preset("my-preset", presets_dir=tmp_path)
+
+
+class TestPresetFieldValidation:
+    """Preset fields are validated for injection safety."""
+
+    def test_invalid_brew_extra_raises(self) -> None:
+        data = {**VALID_PRESET, "brew_extras": ["valid", "foo; rm -rf /"]}
+        with pytest.raises(PresetError, match="validation failed"):
+            validate_preset(data)
+
+    def test_brew_extra_starting_with_dash_raises(self) -> None:
+        data = {**VALID_PRESET, "brew_extras": ["--config=/etc/passwd"]}
+        with pytest.raises(PresetError, match="validation failed"):
+            validate_preset(data)
+
+    def test_valid_brew_extras_accepted(self) -> None:
+        data = {**VALID_PRESET, "brew_extras": ["python@3.12", "htop", "jq"]}
+        preset = validate_preset(data)
+        assert preset.brew_extras == ["python@3.12", "htop", "jq"]
+
+    def test_invalid_github_account_raises(self) -> None:
+        data = {**VALID_PRESET, "github_account": "user; echo pwned"}
+        with pytest.raises(PresetError, match="validation failed"):
+            validate_preset(data)
+
+    def test_valid_github_account_accepted(self) -> None:
+        data = {**VALID_PRESET, "github_account": "my-org-123"}
+        preset = validate_preset(data)
+        assert preset.github_account == "my-org-123"

@@ -72,6 +72,12 @@ class TestLoadRegistry:
         with pytest.raises(RegistryError, match="Unsupported registry version: 99"):
             load_registry(p)
 
+    def test_corrupt_json_raises_registry_error(self, tmp_path: Path) -> None:
+        p = _registry_path(tmp_path)
+        p.write_text("{not valid json")
+        with pytest.raises(RegistryError, match="Corrupt registry file"):
+            load_registry(p)
+
 
 class TestSaveRegistry:
     def test_round_trip(self, tmp_path: Path) -> None:
@@ -176,6 +182,18 @@ class TestUpdateEntry:
         add_entry(_make_entry("dev1"), p)
         with pytest.raises(RegistryError, match="Invalid field: bogus"):
             update_entry("dev1", p, bogus="value")
+
+    def test_rename_blocked(self, tmp_path: Path) -> None:
+        p = _registry_path(tmp_path)
+        add_entry(_make_entry("dev1"), p)
+        with pytest.raises(RegistryError, match="Cannot rename"):
+            update_entry("dev1", p, name="dev2")
+
+    def test_invalid_status_value_raises(self, tmp_path: Path) -> None:
+        p = _registry_path(tmp_path)
+        add_entry(_make_entry("dev1"), p)
+        with pytest.raises(RegistryError, match="Invalid field value"):
+            update_entry("dev1", p, status="bogus")
 
 
 class TestStatusTransitions:
