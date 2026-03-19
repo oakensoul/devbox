@@ -107,6 +107,25 @@ class TestRemoveUserFromSSHGroup:
             remove_user_from_ssh_group("dx-dev1")
 
 
+class TestUsernameValidation:
+    def test_rejects_non_dx_prefix(self) -> None:
+        with pytest.raises(SshdError, match="Invalid devbox username"):
+            is_user_in_ssh_group("baduser")
+
+    def test_rejects_empty(self) -> None:
+        with pytest.raises(SshdError, match="Invalid devbox username"):
+            is_user_in_ssh_group("")
+
+    def test_rejects_injection_attempt(self) -> None:
+        with pytest.raises(SshdError, match="Invalid devbox username"):
+            add_user_to_ssh_group("dx-; rm -rf /")
+
+    def test_accepts_valid_dx_name(self, mocker: MockerFixture) -> None:
+        mock_run = mocker.patch("devbox.sshd.subprocess.run")
+        mock_run.return_value = MagicMock(returncode=0)
+        assert is_user_in_ssh_group("dx-my-devbox") is True
+
+
 class TestEnsureSSHAccess:
     def test_enables_when_remote_login_on(self, mocker: MockerFixture) -> None:
         mocker.patch("devbox.sshd.is_remote_login_enabled", return_value=True)

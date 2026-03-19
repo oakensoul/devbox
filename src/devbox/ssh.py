@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -13,6 +14,7 @@ import requests
 from devbox.exceptions import SSHError
 
 _SSH_KEY_PREFIX_RE = re.compile(r"^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp\d+|sk-ssh-ed25519)\s")
+_GITHUB_ACCOUNT_RE = re.compile(r"^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$")
 _CONFIG_PATH = Path.home() / ".devbox" / "config.json"
 
 
@@ -31,7 +33,7 @@ def generate_keypair(home_dir: Path) -> str:
         raise SSHError(f"SSH key already exists: {key_path}")
 
     try:
-        subprocess.run(
+        result = subprocess.run(
             [
                 "ssh-keygen", "-t", "ed25519",
                 "-f", str(key_path),
@@ -46,6 +48,9 @@ def generate_keypair(home_dir: Path) -> str:
         raise SSHError("ssh-keygen is not available") from None
     except subprocess.TimeoutExpired:
         raise SSHError("ssh-keygen timed out") from None
+
+    if result.returncode != 0:
+        raise SSHError(f"ssh-keygen failed (exit code {result.returncode})")
 
     if not key_path.exists():
         raise SSHError("ssh-keygen did not produce a key file")
@@ -93,20 +98,36 @@ def _validate_ssh_keys(content: str) -> list[str]:
     return valid_keys
 
 
+def _chown_recursive(path: Path, username: str) -> None:
+    """Change ownership of path to the given user via sudo chown."""
+    with contextlib.suppress(FileNotFoundError, subprocess.TimeoutExpired):
+        subprocess.run(
+            ["sudo", "chown", "-R", f"{username}:staff", str(path)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+
 def populate_authorized_keys(
     home_dir: Path,
     github_user: str | None = None,
+    target_user: str | None = None,
     timeout: int = 10,
 ) -> int:
     """Populate authorized_keys from the parent user's GitHub public keys.
 
     Fetches keys from ``https://github.com/<user>.keys`` and writes them to
-    ``<home_dir>/.ssh/authorized_keys``.
+    ``<home_dir>/.ssh/authorized_keys``. If ``target_user`` is provided,
+    chowns the ``.ssh`` directory to that user for sshd StrictModes.
 
     Returns the number of keys written.
     """
     if github_user is None:
         github_user = _get_parent_github_user()
+
+    if not _GITHUB_ACCOUNT_RE.match(github_user) or len(github_user) > 39:
+        raise SSHError(f"Invalid GitHub username: {github_user!r}")
 
     url = f"https://github.com/{github_user}.keys"
     try:
@@ -128,5 +149,8 @@ def populate_authorized_keys(
     auth_keys_path = ssh_dir / "authorized_keys"
     auth_keys_path.write_text("\n".join(keys) + "\n", encoding="utf-8")
     os.chmod(auth_keys_path, 0o600)
+
+    if target_user is not None:
+        _chown_recursive(ssh_dir, target_user)
 
     return len(keys)
