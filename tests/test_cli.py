@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Robert Gunnar Johnson Jr.
+
 """Tests for the Click CLI interface."""
 
 from __future__ import annotations
@@ -53,9 +56,7 @@ class TestCliGroup:
 
 
 class TestCreateCommand:
-    def test_happy_path(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_happy_path(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch(
             "devbox.cli.create_devbox",
             return_value={"status": "ready"},
@@ -66,9 +67,7 @@ class TestCreateCommand:
 
         assert result.exit_code == 0
 
-    def test_calls_core_with_correct_args(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_calls_core_with_correct_args(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mock_create = mocker.patch(
             "devbox.cli.create_devbox",
             return_value={"status": "ready"},
@@ -79,9 +78,7 @@ class TestCreateCommand:
 
         mock_create.assert_called_once_with("mybox", "py-dev")
 
-    def test_success_output_mentions_name(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_success_output_mentions_name(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch(
             "devbox.cli.create_devbox",
             return_value={"status": "ready"},
@@ -94,9 +91,7 @@ class TestCreateCommand:
         assert "mybox" in printed
         assert "created" in printed
 
-    def test_success_output_shows_ssh_hint(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_success_output_shows_ssh_hint(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch(
             "devbox.cli.create_devbox",
             return_value={"status": "ready"},
@@ -108,9 +103,7 @@ class TestCreateCommand:
         printed = " ".join(str(c) for c in mock_console.print.call_args_list)
         assert "ssh dx-mybox@localhost" in printed
 
-    def test_devbox_error_exits_1(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_devbox_error_exits_1(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch(
             "devbox.cli.create_devbox",
             side_effect=DevboxError("boom"),
@@ -121,9 +114,7 @@ class TestCreateCommand:
 
         assert result.exit_code == 1
 
-    def test_devbox_error_prints_message(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_devbox_error_prints_message(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch(
             "devbox.cli.create_devbox",
             side_effect=DevboxError("preset not found"),
@@ -135,9 +126,7 @@ class TestCreateCommand:
         printed = " ".join(str(c) for c in mock_console.print.call_args_list)
         assert "preset not found" in printed
 
-    def test_value_error_exits_1(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_value_error_exits_1(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch(
             "devbox.cli.create_devbox",
             side_effect=ValueError("invalid name"),
@@ -155,9 +144,7 @@ class TestCreateCommand:
 
 
 class TestCreateDryRun:
-    def test_dry_run_calls_core_with_flag(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_dry_run_calls_core_with_flag(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mock_create = mocker.patch(
             "devbox.cli.create_devbox",
             return_value={
@@ -172,9 +159,7 @@ class TestCreateDryRun:
         assert result.exit_code == 0
         mock_create.assert_called_once_with("mybox", "py-dev", dry_run=True)
 
-    def test_dry_run_prints_actions(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_dry_run_prints_actions(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch(
             "devbox.cli.create_devbox",
             return_value={
@@ -194,9 +179,7 @@ class TestCreateDryRun:
         assert "Would create macOS user dx-mybox" in printed
         assert "Would generate SSH keypair" in printed
 
-    def test_dry_run_error_exits_1(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_dry_run_error_exits_1(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch(
             "devbox.cli.create_devbox",
             side_effect=DevboxError("already exists"),
@@ -209,9 +192,7 @@ class TestCreateDryRun:
 
 
 class TestNukeDryRun:
-    def test_dry_run_calls_core_with_flag(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_dry_run_calls_core_with_flag(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mock_nuke = mocker.patch(
             "devbox.cli.nuke_devbox",
             return_value=["Would mark devbox 'mybox' as nuking"],
@@ -223,9 +204,7 @@ class TestNukeDryRun:
         assert result.exit_code == 0
         mock_nuke.assert_called_once_with("mybox", dry_run=True)
 
-    def test_dry_run_prints_actions(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_dry_run_prints_actions(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch(
             "devbox.cli.nuke_devbox",
             return_value=[
@@ -242,9 +221,7 @@ class TestNukeDryRun:
         assert "Would mark devbox" in printed
         assert "Would delete macOS user" in printed
 
-    def test_dry_run_error_exits_1(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_dry_run_error_exits_1(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch(
             "devbox.cli.nuke_devbox",
             side_effect=DevboxError("not found"),
@@ -257,9 +234,7 @@ class TestNukeDryRun:
 
 
 class TestRebuildCommand:
-    def test_happy_path(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_happy_path(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch("devbox.cli.rebuild_devbox")
         mocker.patch("devbox.cli.console")
 
@@ -267,9 +242,7 @@ class TestRebuildCommand:
 
         assert result.exit_code == 0
 
-    def test_calls_core_with_name(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_calls_core_with_name(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mock_rebuild = mocker.patch("devbox.cli.rebuild_devbox")
         mocker.patch("devbox.cli.console")
 
@@ -289,9 +262,7 @@ class TestRebuildCommand:
         assert "rebuilt" in printed
         assert "mybox" in printed
 
-    def test_devbox_error_exits_1(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_devbox_error_exits_1(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch(
             "devbox.cli.rebuild_devbox",
             side_effect=DevboxError("not found"),
@@ -302,9 +273,7 @@ class TestRebuildCommand:
 
         assert result.exit_code == 1
 
-    def test_devbox_error_prints_message(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_devbox_error_prints_message(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch(
             "devbox.cli.rebuild_devbox",
             side_effect=DevboxError("not found"),
@@ -316,9 +285,7 @@ class TestRebuildCommand:
         printed = " ".join(str(c) for c in mock_console.print.call_args_list)
         assert "not found" in printed
 
-    def test_value_error_exits_1(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_value_error_exits_1(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch(
             "devbox.cli.rebuild_devbox",
             side_effect=ValueError("invalid name"),
@@ -331,9 +298,7 @@ class TestRebuildCommand:
 
 
 class TestNukeCommand:
-    def test_happy_path(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_happy_path(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch("devbox.cli.nuke_devbox", return_value=[])
         mocker.patch("devbox.cli.console")
 
@@ -341,9 +306,7 @@ class TestNukeCommand:
 
         assert result.exit_code == 0
 
-    def test_calls_core_with_name(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_calls_core_with_name(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mock_nuke = mocker.patch("devbox.cli.nuke_devbox", return_value=[])
         mocker.patch("devbox.cli.console")
 
@@ -351,9 +314,7 @@ class TestNukeCommand:
 
         mock_nuke.assert_called_once_with("mybox")
 
-    def test_success_output_mentions_nuked(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_success_output_mentions_nuked(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch("devbox.cli.nuke_devbox", return_value=[])
         mock_console = mocker.patch("devbox.cli.console")
 
@@ -363,9 +324,7 @@ class TestNukeCommand:
         assert "nuked" in printed
         assert "mybox" in printed
 
-    def test_nuke_with_warnings(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_nuke_with_warnings(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch(
             "devbox.cli.nuke_devbox",
             return_value=["failed to remove SSH key", "leftover volume"],
@@ -380,9 +339,7 @@ class TestNukeCommand:
         assert "failed to remove SSH key" in printed
         assert "leftover volume" in printed
 
-    def test_devbox_error_exits_1(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_devbox_error_exits_1(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch(
             "devbox.cli.nuke_devbox",
             side_effect=DevboxError("destroy failed"),
@@ -393,9 +350,7 @@ class TestNukeCommand:
 
         assert result.exit_code == 1
 
-    def test_devbox_error_prints_message(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_devbox_error_prints_message(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch(
             "devbox.cli.nuke_devbox",
             side_effect=DevboxError("destroy failed"),
@@ -407,9 +362,7 @@ class TestNukeCommand:
         printed = " ".join(str(c) for c in mock_console.print.call_args_list)
         assert "destroy failed" in printed
 
-    def test_value_error_exits_1(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_value_error_exits_1(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch(
             "devbox.cli.nuke_devbox",
             side_effect=ValueError("invalid name"),
@@ -422,9 +375,7 @@ class TestNukeCommand:
 
 
 class TestListCommand:
-    def test_empty_list_output(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_empty_list_output(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch("devbox.cli.list_devboxes", return_value=[])
         mock_console = mocker.patch("devbox.cli.console")
 
@@ -447,9 +398,7 @@ class TestListCommand:
         assert "web" in result.output
         assert "api" in result.output
 
-    def test_table_output_contains_presets(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_table_output_contains_presets(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch("devbox.cli.list_devboxes", return_value=_sample_entries())
         mocker.patch("devbox.cli.console")
 
@@ -458,9 +407,7 @@ class TestListCommand:
         assert "python-dev" in result.output
         assert "rust-dev" in result.output
 
-    def test_table_output_contains_dates(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_table_output_contains_dates(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch("devbox.cli.list_devboxes", return_value=_sample_entries())
         mocker.patch("devbox.cli.console")
 
@@ -468,9 +415,7 @@ class TestListCommand:
 
         assert "2025-06-01" in result.output
 
-    def test_table_output_contains_status(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_table_output_contains_status(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch("devbox.cli.list_devboxes", return_value=_sample_entries())
         mocker.patch("devbox.cli.console")
 
@@ -478,9 +423,7 @@ class TestListCommand:
 
         assert "healthy" in result.output
 
-    def test_devbox_error_exits_1(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_devbox_error_exits_1(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch(
             "devbox.cli.list_devboxes",
             side_effect=DevboxError("registry corrupt"),
@@ -491,9 +434,7 @@ class TestListCommand:
 
         assert result.exit_code == 1
 
-    def test_devbox_error_prints_message(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_devbox_error_prints_message(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch(
             "devbox.cli.list_devboxes",
             side_effect=DevboxError("registry corrupt"),
@@ -505,9 +446,7 @@ class TestListCommand:
         printed = " ".join(str(c) for c in mock_console.print.call_args_list)
         assert "registry corrupt" in printed
 
-    def test_value_error_exits_1(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_value_error_exits_1(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch(
             "devbox.cli.list_devboxes",
             side_effect=ValueError("bad registry"),
@@ -518,12 +457,8 @@ class TestListCommand:
 
         assert result.exit_code == 1
 
-    def test_list_check_passes_flag_to_core(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
-        mock_list = mocker.patch(
-            "devbox.cli.list_devboxes", return_value=_sample_entries()
-        )
+    def test_list_check_passes_flag_to_core(self, runner: CliRunner, mocker: MockerFixture) -> None:
+        mock_list = mocker.patch("devbox.cli.list_devboxes", return_value=_sample_entries())
         mocker.patch("devbox.cli.console")
 
         result = runner.invoke(cli, ["list", "--check"])
@@ -585,9 +520,7 @@ class TestListCommand:
         assert result.exit_code == 0
         mock_list.assert_called_once_with(check_ssh=True)
 
-    def test_list_check_empty_registry(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_list_check_empty_registry(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch("devbox.cli.list_devboxes", return_value=[])
         mock_console = mocker.patch("devbox.cli.console")
 
@@ -597,12 +530,8 @@ class TestListCommand:
         printed = " ".join(str(c) for c in mock_console.print.call_args_list)
         assert "No devboxes registered" in printed
 
-    def test_list_without_check_no_ssh_flag(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
-        mock_list = mocker.patch(
-            "devbox.cli.list_devboxes", return_value=_sample_entries()
-        )
+    def test_list_without_check_no_ssh_flag(self, runner: CliRunner, mocker: MockerFixture) -> None:
+        mock_list = mocker.patch("devbox.cli.list_devboxes", return_value=_sample_entries())
         mocker.patch("devbox.cli.console")
 
         result = runner.invoke(cli, ["list"])

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Robert Gunnar Johnson Jr.
+
 """iTerm2 dynamic profile creation/removal."""
 
 from __future__ import annotations
@@ -10,9 +13,7 @@ from devbox.exceptions import ITermError
 from devbox.naming import DX_PREFIX, validate_name
 from devbox.presets import Preset
 
-PROFILES_DIR = (
-    Path.home() / "Library" / "Application Support" / "iTerm2" / "DynamicProfiles"
-)
+PROFILES_DIR = Path.home() / "Library" / "Application Support" / "iTerm2" / "DynamicProfiles"
 
 # Map preset color_scheme values to iTerm2 color preset names.
 _COLOR_PRESETS: dict[str, str] = {
@@ -55,9 +56,7 @@ def _build_profile(name: str, preset: Preset) -> dict[str, Any]:
     return {"Profiles": [profile]}
 
 
-def create_profile(
-    name: str, preset: Preset, profiles_dir: Path | None = None
-) -> Path:
+def create_profile(name: str, preset: Preset, profiles_dir: Path | None = None) -> Path:
     """Create an iTerm2 dynamic profile for the devbox.
 
     Writes the profile JSON and returns the path to the file.
@@ -70,9 +69,7 @@ def create_profile(
     profile = _build_profile(name, preset)
 
     try:
-        path.write_text(
-            json.dumps(profile, indent=2) + "\n", encoding="utf-8"
-        )
+        path.write_text(json.dumps(profile, indent=2) + "\n", encoding="utf-8")
     except OSError as exc:
         raise ITermError(f"Failed to write iTerm2 profile: {exc}") from exc
 

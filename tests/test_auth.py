@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Robert Gunnar Johnson Jr.
+
 """Tests for auth injection module."""
 
 from __future__ import annotations
@@ -40,9 +43,7 @@ def _make_preset(
 
 
 class TestInjectAnthropicAuth:
-    def test_appends_api_key_to_devbox_env(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
+    def test_appends_api_key_to_devbox_env(self, tmp_path: Path, mocker: MockerFixture) -> None:
         env_file = tmp_path / ".devbox-env"
         env_file.write_text("export FOO='bar'\n", encoding="utf-8")
 
@@ -56,9 +57,7 @@ class TestInjectAnthropicAuth:
         assert "export FOO='bar'" in content
         assert "export ANTHROPIC_API_KEY='sk-ant-test-key'" in content
 
-    def test_creates_devbox_env_if_missing(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
+    def test_creates_devbox_env_if_missing(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mocker.patch("devbox.auth.get_secret", return_value="sk-ant-key")
         mocker.patch("devbox.auth.chown_path")
 
@@ -69,9 +68,7 @@ class TestInjectAnthropicAuth:
         assert env_file.exists()
         assert "ANTHROPIC_API_KEY" in env_file.read_text(encoding="utf-8")
 
-    def test_file_permissions_are_0600(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
+    def test_file_permissions_are_0600(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mocker.patch("devbox.auth.get_secret", return_value="sk-ant-key")
         mocker.patch("devbox.auth.chown_path")
 
@@ -82,9 +79,7 @@ class TestInjectAnthropicAuth:
         mode = os.stat(env_file).st_mode & 0o777
         assert mode == 0o600
 
-    def test_chowns_file_to_username(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
+    def test_chowns_file_to_username(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mocker.patch("devbox.auth.get_secret", return_value="sk-ant-key")
         mock_chown = mocker.patch("devbox.auth.chown_path")
 
@@ -111,9 +106,7 @@ class TestInjectAnthropicAuth:
         with pytest.raises(AuthError, match="Failed to resolve Anthropic API key"):
             inject_anthropic_auth(tmp_path, preset, "dx-test")
 
-    def test_escapes_single_quotes_in_key(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
+    def test_escapes_single_quotes_in_key(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mocker.patch("devbox.auth.get_secret", return_value="key'with'quotes")
         mocker.patch("devbox.auth.chown_path")
 
@@ -125,18 +118,14 @@ class TestInjectAnthropicAuth:
         # Verify it doesn't have unescaped single quotes
         assert "'key'\"'\"'with'\"'\"'quotes'" in content
 
-    def test_calls_get_secret_with_correct_ref(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
+    def test_calls_get_secret_with_correct_ref(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mock_get = mocker.patch("devbox.auth.get_secret", return_value="key")
         mocker.patch("devbox.auth.chown_path")
 
         preset = _make_preset(provider="local")
         inject_anthropic_auth(tmp_path, preset, "dx-test")
 
-        mock_get.assert_called_once_with(
-            "op://Development/anthropic-api-key/credential"
-        )
+        mock_get.assert_called_once_with("op://Development/anthropic-api-key/credential")
 
     def test_raises_auth_error_on_chown_failure(
         self, tmp_path: Path, mocker: MockerFixture
@@ -150,9 +139,7 @@ class TestInjectAnthropicAuth:
 
 
 class TestInjectAwsAuth:
-    def test_writes_aws_config_and_credentials(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
+    def test_writes_aws_config_and_credentials(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mocker.patch(
             "devbox.auth.get_secret",
             side_effect=[_VALID_ACCESS_KEY, _VALID_SECRET_KEY, _VALID_REGION],
@@ -171,9 +158,7 @@ class TestInjectAwsAuth:
         assert f"aws_access_key_id = {_VALID_ACCESS_KEY}" in creds
         assert f"aws_secret_access_key = {_VALID_SECRET_KEY}" in creds
 
-    def test_aws_dir_permissions_0700(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
+    def test_aws_dir_permissions_0700(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mocker.patch(
             "devbox.auth.get_secret",
             side_effect=[_VALID_ACCESS_KEY, _VALID_SECRET_KEY, _VALID_REGION_ALT],
@@ -186,9 +171,7 @@ class TestInjectAwsAuth:
         mode = os.stat(tmp_path / ".aws").st_mode & 0o777
         assert mode == 0o700
 
-    def test_aws_files_permissions_0600(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
+    def test_aws_files_permissions_0600(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mocker.patch(
             "devbox.auth.get_secret",
             side_effect=[_VALID_ACCESS_KEY, _VALID_SECRET_KEY, _VALID_REGION_ALT],
@@ -202,9 +185,7 @@ class TestInjectAwsAuth:
             mode = os.stat(tmp_path / ".aws" / name).st_mode & 0o777
             assert mode == 0o600, f"{name} should be 0600"
 
-    def test_chowns_aws_dir(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
+    def test_chowns_aws_dir(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mocker.patch(
             "devbox.auth.get_secret",
             side_effect=[_VALID_ACCESS_KEY, _VALID_SECRET_KEY, _VALID_REGION_ALT],
@@ -241,9 +222,7 @@ class TestInjectAwsAuth:
         with pytest.raises(AuthError, match="Failed to resolve AWS credentials"):
             inject_aws_auth(tmp_path, preset, "dx-test")
 
-    def test_resolves_correct_op_references(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
+    def test_resolves_correct_op_references(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mock_get = mocker.patch(
             "devbox.auth.get_secret",
             side_effect=[_VALID_ACCESS_KEY, _VALID_SECRET_KEY, _VALID_REGION_EU],
@@ -272,9 +251,7 @@ class TestInjectAwsAuth:
         with pytest.raises(AuthError, match="Failed to write AWS credentials"):
             inject_aws_auth(tmp_path, preset, "dx-test")
 
-    def test_config_contains_output_json(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
+    def test_config_contains_output_json(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mocker.patch(
             "devbox.auth.get_secret",
             side_effect=[_VALID_ACCESS_KEY, _VALID_SECRET_KEY, _VALID_REGION],
@@ -319,13 +296,9 @@ class TestValidateAwsValues:
 
     def test_secret_key_with_special_chars_raises(self) -> None:
         with pytest.raises(AuthError, match="Invalid AWS secret key format"):
-            _validate_aws_values(
-                _VALID_REGION, _VALID_ACCESS_KEY, "x" * 16 + "!@#$%^&*()"
-            )
+            _validate_aws_values(_VALID_REGION, _VALID_ACCESS_KEY, "x" * 16 + "!@#$%^&*()")
 
-    def test_inject_aws_rejects_invalid_region(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
+    def test_inject_aws_rejects_invalid_region(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mocker.patch(
             "devbox.auth.get_secret",
             side_effect=[_VALID_ACCESS_KEY, _VALID_SECRET_KEY, "INVALID"],
@@ -358,9 +331,7 @@ class TestValidateAwsValues:
 
 
 class TestInjectAuth:
-    def test_dispatches_to_anthropic_for_local(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
+    def test_dispatches_to_anthropic_for_local(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mock_anthropic = mocker.patch("devbox.auth.inject_anthropic_auth")
 
         preset = _make_preset(provider="local")
@@ -368,9 +339,7 @@ class TestInjectAuth:
 
         mock_anthropic.assert_called_once_with(tmp_path, preset, "dx-test")
 
-    def test_dispatches_to_aws_for_aws(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
+    def test_dispatches_to_aws_for_aws(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mock_aws = mocker.patch("devbox.auth.inject_aws_auth")
 
         preset = _make_preset(provider="aws", aws_profile="prof")
@@ -388,9 +357,7 @@ class TestInjectAuth:
         with pytest.raises(AuthError, match="Unknown provider"):
             inject_auth(tmp_path, preset, "dx-test")
 
-    def test_propagates_anthropic_error(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
+    def test_propagates_anthropic_error(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mocker.patch(
             "devbox.auth.inject_anthropic_auth",
             side_effect=AuthError("boom"),
@@ -400,9 +367,7 @@ class TestInjectAuth:
         with pytest.raises(AuthError, match="boom"):
             inject_auth(tmp_path, preset, "dx-test")
 
-    def test_propagates_aws_error(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
+    def test_propagates_aws_error(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mocker.patch(
             "devbox.auth.inject_aws_auth",
             side_effect=AuthError("aws boom"),

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Robert Gunnar Johnson Jr.
+
 """Tests for the devbox registry module."""
 
 from __future__ import annotations
@@ -56,9 +59,7 @@ class TestLoadRegistry:
         p = _registry_path(tmp_path)
         data = {
             "version": 1,
-            "devboxes": [
-                {"name": "dev1", "preset": "splash-data", "created": "2025-03-12"}
-            ],
+            "devboxes": [{"name": "dev1", "preset": "splash-data", "created": "2025-03-12"}],
         }
         p.write_text(json.dumps(data))
         reg = load_registry(p)
@@ -247,14 +248,10 @@ class TestModels:
 
     def test_invalid_github_key_id_raises(self) -> None:
         with pytest.raises(Exception, match="numeric"):
-            RegistryEntry(
-                name="x", preset="p", created="2025-01-01", github_key_id="abc"
-            )
+            RegistryEntry(name="x", preset="p", created="2025-01-01", github_key_id="abc")
 
     def test_valid_github_key_id_accepted(self) -> None:
-        entry = RegistryEntry(
-            name="x", preset="p", created="2025-01-01", github_key_id="12345"
-        )
+        entry = RegistryEntry(name="x", preset="p", created="2025-01-01", github_key_id="12345")
         assert entry.github_key_id == "12345"
 
     def test_registry_entry_serialization(self) -> None:

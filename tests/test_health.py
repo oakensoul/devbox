@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Robert Gunnar Johnson Jr.
+
 """Tests for devbox health checking."""
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ from devbox.health import (
 # ---------------------------------------------------------------------------
 # read_heartbeat
 # ---------------------------------------------------------------------------
+
 
 class TestReadHeartbeat:
     def test_returns_none_when_file_missing(self, mocker: MockerFixture) -> None:
@@ -63,6 +67,7 @@ class TestReadHeartbeat:
 # health_status
 # ---------------------------------------------------------------------------
 
+
 class TestHealthStatus:
     def test_none_returns_unknown(self) -> None:
         assert health_status(None) == "unknown"
@@ -104,6 +109,7 @@ class TestHealthStatus:
 # ---------------------------------------------------------------------------
 # format_last_seen
 # ---------------------------------------------------------------------------
+
 
 class TestFormatLastSeen:
     def test_none_returns_never(self) -> None:
@@ -150,6 +156,7 @@ class TestFormatLastSeen:
 # check_ssh
 # ---------------------------------------------------------------------------
 
+
 class TestCheckSsh:
     def test_returns_true_on_success(self, mocker: MockerFixture) -> None:
         mock_run = mocker.patch("devbox.health.subprocess.run")
@@ -195,6 +202,7 @@ class TestCheckSsh:
 # ---------------------------------------------------------------------------
 # check_all_ssh
 # ---------------------------------------------------------------------------
+
 
 class TestCheckAllSsh:
     def test_empty_list(self) -> None:
@@ -243,6 +251,7 @@ class TestCheckAllSsh:
 # ---------------------------------------------------------------------------
 # get_health
 # ---------------------------------------------------------------------------
+
 
 class TestGetHealth:
     def test_healthy_no_ssh_check(self) -> None:
