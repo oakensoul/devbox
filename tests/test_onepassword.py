@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Robert Gunnar Johnson Jr.
+
 """Tests for the 1Password CLI wrapper."""
 
 from __future__ import annotations
@@ -43,9 +46,7 @@ class TestGetSecret:
 
     def test_raises_on_nonzero_exit(self, mocker: MockerFixture) -> None:
         mock_run = mocker.patch("devbox.onepassword.subprocess.run")
-        mock_run.return_value = MagicMock(
-            returncode=1, stderr="item not found\n"
-        )
+        mock_run.return_value = MagicMock(returncode=1, stderr="item not found\n")
 
         with pytest.raises(OnePasswordError, match="Failed to resolve 1Password reference"):
             get_secret("op://vault/item/field")
@@ -129,11 +130,13 @@ class TestResolveEnvVars:
     def test_handles_mixed_dict(self, mocker: MockerFixture) -> None:
         mock_get = mocker.patch("devbox.onepassword.get_secret", return_value="secret")
 
-        result = resolve_env_vars({
-            "PLAIN": "hello",
-            "SECRET": "op://vault/item/field",
-            "ALSO_PLAIN": "world",
-        })
+        result = resolve_env_vars(
+            {
+                "PLAIN": "hello",
+                "SECRET": "op://vault/item/field",
+                "ALSO_PLAIN": "world",
+            }
+        )
 
         assert result == {
             "PLAIN": "hello",

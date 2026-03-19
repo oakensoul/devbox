@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Robert Gunnar Johnson Jr.
+
 """Tests for sshd configuration."""
 
 from __future__ import annotations
@@ -20,16 +23,12 @@ from devbox.sshd import (
 class TestIsRemoteLoginEnabled:
     def test_enabled(self, mocker: MockerFixture) -> None:
         mock_run = mocker.patch("devbox.sshd.subprocess.run")
-        mock_run.return_value = MagicMock(
-            returncode=0, stdout="Remote Login: On"
-        )
+        mock_run.return_value = MagicMock(returncode=0, stdout="Remote Login: On")
         assert is_remote_login_enabled() is True
 
     def test_disabled(self, mocker: MockerFixture) -> None:
         mock_run = mocker.patch("devbox.sshd.subprocess.run")
-        mock_run.return_value = MagicMock(
-            returncode=0, stdout="Remote Login: Off"
-        )
+        mock_run.return_value = MagicMock(returncode=0, stdout="Remote Login: Off")
         assert is_remote_login_enabled() is False
 
     def test_command_not_found(self, mocker: MockerFixture) -> None:

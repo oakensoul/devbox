@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Robert Gunnar Johnson Jr.
+
 """Integration tests for devbox — run with pytest -m integration."""
 
 from __future__ import annotations
@@ -128,9 +131,7 @@ class TestITermProfile:
             github_account="octocat",
         )
 
-    def test_create_and_remove_profile(
-        self, profiles_dir: Path, preset: Preset
-    ) -> None:
+    def test_create_and_remove_profile(self, profiles_dir: Path, preset: Preset) -> None:
         name = self._TEST_NAME
 
         # Create profile and verify the file exists with expected content.

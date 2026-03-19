@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Robert Gunnar Johnson Jr.
+
 """Bootstrap devbox user environments — nvm, pyenv, brew extras, npm/pip globals."""
 
 from __future__ import annotations
@@ -49,7 +52,7 @@ def install_nvm(home_dir: Path, node_version: str, username: str) -> None:
             "bash",
             "-c",
             f"export HOME={q_home} && export NVM_DIR={q_nvm} "
-            f"&& curl -fsSL {shlex.quote(_NVM_INSTALL_URL)} | bash",
+            f"&& curl --proto =https -fsSL {shlex.quote(_NVM_INSTALL_URL)} | bash",
         ],
         error_prefix="nvm install",
         timeout=_TOOL_TIMEOUT,
@@ -91,7 +94,7 @@ def install_pyenv(home_dir: Path, python_version: str, username: str) -> None:
             "bash",
             "-c",
             f"export HOME={q_home} && export PYENV_ROOT={q_pyenv_root} "
-            f"&& curl -fsSL {shlex.quote(_PYENV_INSTALLER_URL)} | bash",
+            f"&& curl --proto =https -fsSL {shlex.quote(_PYENV_INSTALLER_URL)} | bash",
         ],
         error_prefix="pyenv install",
         timeout=_TOOL_TIMEOUT,

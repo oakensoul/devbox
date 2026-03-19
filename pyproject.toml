@@ -6,6 +6,23 @@ build-backend = "setuptools.build_meta"
 name = "oakensoul-devbox"
 version = "0.1.0"
 description = "CLI and library for managing disposable SSH-only macOS dev environments"
+license = "AGPL-3.0-or-later"
+readme = "README.md"
+authors = [
+    { name = "oakensoul", email = "github@oakensoul.com" },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Systems Administration",
+    "Typing :: Typed",
+]
 requires-python = ">=3.11"
 dependencies = [
     "click>=8.0",
@@ -17,6 +34,11 @@ dependencies = [
 [project.scripts]
 devbox = "devbox.cli:cli"
 
+[project.urls]
+Homepage = "https://github.com/oakensoul/devbox"
+Repository = "https://github.com/oakensoul/devbox"
+Issues = "https://github.com/oakensoul/devbox/issues"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
@@ -24,6 +46,11 @@ dev = [
     "ruff>=0.4",
     "mypy>=1.0",
     "types-requests>=2.31",
+    "build>=1.0",
+    "cyclonedx-bom>=4.0",
+    "pip-audit>=2.7",
+    "pytest-cov>=5.0",
+    "twine>=5.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -44,9 +71,23 @@ select = [
     "B",    # flake8-bugbear
     "SIM",  # flake8-simplify
     "RUF",  # ruff-specific rules
+    "S",    # flake8-bandit security checks
 ]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "S105", "S106", "S108"]
+"src/devbox/bootstrap.py" = ["S603", "S607"]
+"src/devbox/macos.py" = ["S603", "S607"]
+"src/devbox/ssh.py" = ["S603", "S607"]
+"src/devbox/sshd.py" = ["S603", "S607"]
+"src/devbox/sudoers.py" = ["S603", "S607"]
+"src/devbox/health.py" = ["S603", "S607"]
+"src/devbox/onepassword.py" = ["S603", "S607"]
+"src/devbox/presets.py" = ["S603", "S607"]
+"src/devbox/github.py" = ["S105"]
+
 [tool.pytest.ini_options]
+addopts = "-v --cov=devbox --cov-report=term-missing --cov-fail-under=90"
 testpaths = ["tests"]
 importmode = "importlib"
 markers = ["integration: marks tests as integration tests (deselect with '-m \"not integration\"')"]

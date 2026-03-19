@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Robert Gunnar Johnson Jr.
+
 """Local macOS provider.
 
 Delegates to the platform modules via :mod:`devbox.core` orchestration.
@@ -40,9 +43,7 @@ class LocalProvider(Provider):
         ssh.populate_authorized_keys(home_dir, target_user=username)
 
         key_title = f"devbox:{name}"
-        github_key_id = github.add_ssh_key(
-            key_title, public_key, preset_obj.github_account
-        )
+        github_key_id = github.add_ssh_key(key_title, public_key, preset_obj.github_account)
 
         if preset_obj.env_vars:
             resolved = onepassword.resolve_env_vars(preset_obj.env_vars)

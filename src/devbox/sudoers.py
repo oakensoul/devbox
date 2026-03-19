@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Robert Gunnar Johnson Jr.
+
 """Sudoers configuration for passwordless devbox operations."""
 
 from __future__ import annotations
@@ -84,8 +87,7 @@ def install(path: Path | None = None) -> None:
 
         if result.returncode != 0:
             raise SudoersError(
-                f"visudo validation failed (exit code {result.returncode}): "
-                f"{result.stderr.strip()}"
+                f"visudo validation failed (exit code {result.returncode}): {result.stderr.strip()}"
             )
 
         # Copy validated file to the target via sudo tee
