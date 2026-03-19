@@ -154,6 +154,108 @@ class TestCreateCommand:
         assert "preset" in result.output.lower() or "preset" in (result.stderr or "").lower()
 
 
+class TestCreateDryRun:
+    def test_dry_run_calls_core_with_flag(
+        self, runner: CliRunner, mocker: MockerFixture
+    ) -> None:
+        mock_create = mocker.patch(
+            "devbox.cli.create_devbox",
+            return_value={
+                "status": "dry-run",
+                "actions": ["Would create macOS user dx-mybox"],
+            },
+        )
+        mocker.patch("devbox.cli.console")
+
+        result = runner.invoke(cli, ["create", "mybox", "--preset", "py-dev", "--dry-run"])
+
+        assert result.exit_code == 0
+        mock_create.assert_called_once_with("mybox", "py-dev", dry_run=True)
+
+    def test_dry_run_prints_actions(
+        self, runner: CliRunner, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "devbox.cli.create_devbox",
+            return_value={
+                "status": "dry-run",
+                "actions": [
+                    "Would create macOS user dx-mybox",
+                    "Would generate SSH keypair at /Users/dx-mybox/.ssh/",
+                ],
+            },
+        )
+        mock_console = mocker.patch("devbox.cli.console")
+
+        runner.invoke(cli, ["create", "mybox", "--preset", "py-dev", "--dry-run"])
+
+        printed = " ".join(str(c) for c in mock_console.print.call_args_list)
+        assert "Dry-run" in printed
+        assert "Would create macOS user dx-mybox" in printed
+        assert "Would generate SSH keypair" in printed
+
+    def test_dry_run_error_exits_1(
+        self, runner: CliRunner, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "devbox.cli.create_devbox",
+            side_effect=DevboxError("already exists"),
+        )
+        mocker.patch("devbox.cli.console")
+
+        result = runner.invoke(cli, ["create", "mybox", "--preset", "py-dev", "--dry-run"])
+
+        assert result.exit_code == 1
+
+
+class TestNukeDryRun:
+    def test_dry_run_calls_core_with_flag(
+        self, runner: CliRunner, mocker: MockerFixture
+    ) -> None:
+        mock_nuke = mocker.patch(
+            "devbox.cli.nuke_devbox",
+            return_value=["Would mark devbox 'mybox' as nuking"],
+        )
+        mocker.patch("devbox.cli.console")
+
+        result = runner.invoke(cli, ["nuke", "mybox", "--dry-run"])
+
+        assert result.exit_code == 0
+        mock_nuke.assert_called_once_with("mybox", dry_run=True)
+
+    def test_dry_run_prints_actions(
+        self, runner: CliRunner, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "devbox.cli.nuke_devbox",
+            return_value=[
+                "Would mark devbox 'mybox' as nuking",
+                "Would delete macOS user dx-mybox and home directory",
+            ],
+        )
+        mock_console = mocker.patch("devbox.cli.console")
+
+        runner.invoke(cli, ["nuke", "mybox", "--dry-run"])
+
+        printed = " ".join(str(c) for c in mock_console.print.call_args_list)
+        assert "Dry-run" in printed
+        assert "Would mark devbox" in printed
+        assert "Would delete macOS user" in printed
+
+    def test_dry_run_error_exits_1(
+        self, runner: CliRunner, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "devbox.cli.nuke_devbox",
+            side_effect=DevboxError("not found"),
+        )
+        mocker.patch("devbox.cli.console")
+
+        result = runner.invoke(cli, ["nuke", "mybox", "--dry-run"])
+
+        assert result.exit_code == 1
+
+
 class TestRebuildCommand:
     def test_happy_path(
         self, runner: CliRunner, mocker: MockerFixture
@@ -415,3 +517,95 @@ class TestListCommand:
         result = runner.invoke(cli, ["list"])
 
         assert result.exit_code == 1
+
+    def test_list_check_passes_flag_to_core(
+        self, runner: CliRunner, mocker: MockerFixture
+    ) -> None:
+        mock_list = mocker.patch(
+            "devbox.cli.list_devboxes", return_value=_sample_entries()
+        )
+        mocker.patch("devbox.cli.console")
+
+        result = runner.invoke(cli, ["list", "--check"])
+
+        assert result.exit_code == 0
+        mock_list.assert_called_once_with(check_ssh=True)
+
+    def test_list_check_unreachable_overrides_status(
+        self, runner: CliRunner, mocker: MockerFixture
+    ) -> None:
+        entries = _sample_entries()
+        entries[0]["status"] = "unreachable"
+        entries[1]["status"] = "unreachable"
+        mocker.patch("devbox.cli.list_devboxes", return_value=entries)
+        mocker.patch("devbox.cli.console")
+
+        result = runner.invoke(cli, ["list", "--check"])
+
+        assert result.exit_code == 0
+        assert "unreachable" in result.output
+
+    def test_list_check_preserves_status_on_success(
+        self, runner: CliRunner, mocker: MockerFixture
+    ) -> None:
+        mocker.patch("devbox.cli.list_devboxes", return_value=_sample_entries())
+        mocker.patch("devbox.cli.console")
+
+        result = runner.invoke(cli, ["list", "--check"])
+
+        assert result.exit_code == 0
+        assert "healthy" in result.output
+        assert "atrophied" in result.output
+        assert "unreachable" not in result.output
+
+    def test_list_check_skips_non_ready_statuses(
+        self, runner: CliRunner, mocker: MockerFixture
+    ) -> None:
+        entries: list[dict[str, Any]] = [
+            {
+                "name": "box-a",
+                "preset": "py-dev",
+                "created": "2025-06-01T10:00:00",
+                "last_seen": "2025-06-02T12:00:00",
+                "status": "creating",
+            },
+            {
+                "name": "box-b",
+                "preset": "py-dev",
+                "created": "2025-06-01T10:00:00",
+                "last_seen": "2025-06-02T12:00:00",
+                "status": "nuking",
+            },
+        ]
+        mock_list = mocker.patch("devbox.cli.list_devboxes", return_value=entries)
+        mocker.patch("devbox.cli.console")
+
+        result = runner.invoke(cli, ["list", "--check"])
+
+        assert result.exit_code == 0
+        mock_list.assert_called_once_with(check_ssh=True)
+
+    def test_list_check_empty_registry(
+        self, runner: CliRunner, mocker: MockerFixture
+    ) -> None:
+        mocker.patch("devbox.cli.list_devboxes", return_value=[])
+        mock_console = mocker.patch("devbox.cli.console")
+
+        result = runner.invoke(cli, ["list", "--check"])
+
+        assert result.exit_code == 0
+        printed = " ".join(str(c) for c in mock_console.print.call_args_list)
+        assert "No devboxes registered" in printed
+
+    def test_list_without_check_no_ssh_flag(
+        self, runner: CliRunner, mocker: MockerFixture
+    ) -> None:
+        mock_list = mocker.patch(
+            "devbox.cli.list_devboxes", return_value=_sample_entries()
+        )
+        mocker.patch("devbox.cli.console")
+
+        result = runner.invoke(cli, ["list"])
+
+        assert result.exit_code == 0
+        mock_list.assert_called_once_with(check_ssh=False)
