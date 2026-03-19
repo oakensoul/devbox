@@ -27,3 +27,15 @@ class GitHubError(DevboxError):
 
 class MacOSUserError(DevboxError):
     """dscl errors — user creation/deletion failures, UID exhaustion."""
+
+
+class SSHError(DevboxError):
+    """SSH key generation or authorized_keys errors."""
+
+
+class ITermError(DevboxError):
+    """iTerm2 profile errors."""
+
+
+class SshdError(DevboxError):
+    """sshd configuration errors."""
