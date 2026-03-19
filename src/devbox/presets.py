@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 PRESETS_DIR = Path.home() / ".dotfiles-private" / "devbox" / "presets"
 
@@ -23,11 +24,16 @@ PRESETS_DIR = Path.home() / ".dotfiles-private" / "devbox" / "presets"
 # }
 
 
-def load_preset(name: str) -> dict:
+def load_preset(name: str) -> dict[str, Any]:
     """Load a preset by name from the presets directory."""
     raise NotImplementedError
 
 
-def validate_preset(data: dict) -> None:
+def validate_preset(data: dict[str, Any]) -> None:
     """Validate a preset dict against the expected schema. Raises on error."""
+    raise NotImplementedError
+
+
+def list_presets() -> list[str]:
+    """Return names of all available presets."""
     raise NotImplementedError

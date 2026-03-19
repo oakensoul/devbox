@@ -9,6 +9,7 @@ description = "CLI and library for managing disposable SSH-only macOS dev enviro
 requires-python = ">=3.11"
 dependencies = [
     "click>=8.0",
+    "pydantic>=2.0",
     "rich>=13.0",
     "requests>=2.28",
 ]
@@ -19,5 +20,37 @@ devbox = "devbox.cli:cli"
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
+    "pytest-mock>=3.0",
     "ruff>=0.4",
+    "mypy>=1.0",
 ]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific rules
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+importmode = "importlib"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
