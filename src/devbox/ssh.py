@@ -98,8 +98,8 @@ def _validate_ssh_keys(content: str) -> list[str]:
     return valid_keys
 
 
-def _chown_recursive(path: Path, username: str) -> None:
-    """Change ownership of path to the given user via sudo chown.
+def chown_path(path: Path, username: str) -> None:
+    """Change ownership of path to the given user via sudo chown -R.
 
     Raises :exc:`SSHError` if the username is invalid or chown fails.
     """
@@ -165,6 +165,6 @@ def populate_authorized_keys(
     os.chmod(auth_keys_path, 0o600)
 
     if target_user is not None:
-        _chown_recursive(ssh_dir, target_user)
+        chown_path(ssh_dir, target_user)
 
     return len(keys)
