@@ -72,6 +72,12 @@ class TestLoadRegistry:
         with pytest.raises(RegistryError, match="Unsupported registry version: 99"):
             load_registry(p)
 
+    def test_corrupt_json_raises_registry_error(self, tmp_path: Path) -> None:
+        p = _registry_path(tmp_path)
+        p.write_text("{not valid json")
+        with pytest.raises(RegistryError, match="Corrupt registry file"):
+            load_registry(p)
+
 
 class TestSaveRegistry:
     def test_round_trip(self, tmp_path: Path) -> None:
@@ -103,6 +109,20 @@ class TestSaveRegistry:
         assert data["version"] == 1
         assert len(data["devboxes"]) == 1
         assert data["devboxes"][0]["name"] == "dev1"
+
+
+class TestFilePermissions:
+    def test_saved_file_is_0600(self, tmp_path: Path) -> None:
+        p = _registry_path(tmp_path)
+        save_registry(Registry(), p)
+        assert (p.stat().st_mode & 0o777) == 0o600
+
+    def test_tightens_existing_dir_permissions(self, tmp_path: Path) -> None:
+        d = tmp_path / "loose"
+        d.mkdir(mode=0o755)
+        p = d / "registry.json"
+        save_registry(Registry(), p)
+        assert (d.stat().st_mode & 0o777) == 0o700
 
 
 class TestAddEntry:
@@ -177,6 +197,18 @@ class TestUpdateEntry:
         with pytest.raises(RegistryError, match="Invalid field: bogus"):
             update_entry("dev1", p, bogus="value")
 
+    def test_rename_blocked(self, tmp_path: Path) -> None:
+        p = _registry_path(tmp_path)
+        add_entry(_make_entry("dev1"), p)
+        with pytest.raises(RegistryError, match="Cannot rename"):
+            update_entry("dev1", p, name="dev2")
+
+    def test_invalid_status_value_raises(self, tmp_path: Path) -> None:
+        p = _registry_path(tmp_path)
+        add_entry(_make_entry("dev1"), p)
+        with pytest.raises(RegistryError, match="Invalid field value"):
+            update_entry("dev1", p, status="bogus")
+
 
 class TestStatusTransitions:
     def test_creating_to_ready(self, tmp_path: Path) -> None:
@@ -212,6 +244,18 @@ class TestModels:
         reg = Registry()
         assert reg.version == 1
         assert reg.devboxes == []
+
+    def test_invalid_github_key_id_raises(self) -> None:
+        with pytest.raises(Exception, match="numeric"):
+            RegistryEntry(
+                name="x", preset="p", created="2025-01-01", github_key_id="abc"
+            )
+
+    def test_valid_github_key_id_accepted(self) -> None:
+        entry = RegistryEntry(
+            name="x", preset="p", created="2025-01-01", github_key_id="12345"
+        )
+        assert entry.github_key_id == "12345"
 
     def test_registry_entry_serialization(self) -> None:
         entry = _make_entry(
