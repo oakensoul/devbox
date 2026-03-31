@@ -29,6 +29,7 @@ pytestmark = [
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(os.getuid() != 0, reason="Requires root privileges for dscl operations")
 class TestMacOSUser:
     """Integration tests for macOS user creation and deletion via dscl."""
 
