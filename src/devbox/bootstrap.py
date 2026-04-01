@@ -55,22 +55,33 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
         "-i", str(Path.home() / ".ssh" / preset.ssh_key),
         f"{username}@localhost",
     ]
-    gh_account = preset.github_account
 
-    # Pre-clone dotfiles repos via SSH so loadout skips the HTTPS clone
-    # (private repos require auth that HTTPS won't have).
+    # Clone dotfiles repos via SSH (private repos need SSH auth).
     for repo in ["dotfiles", "dotfiles-private"]:
         _run_checked(
             [*ssh_base,
-             f"test -d ~/.{repo} || git clone git@github.com:{gh_account}/{repo}.git ~/.{repo}"],
+             f"test -d ~/.{repo} || git clone git@github.com:{preset.github_account}/{repo}.git ~/.{repo}"],
             error_prefix=f"clone {repo}",
             timeout=120,
         )
 
+    # Save loadout config so `build` knows the user and orgs.
+    config_content = (
+        f'user = "{preset.github_account}"\n'
+        f'orgs = [{", ".join(f\'"{org}"\' for org in preset.loadout_orgs)}]\n'
+    )
     _run_checked(
-        [*ssh_base, f"/opt/homebrew/bin/loadout init {user_arg} {orgs_args}"],
-        error_prefix="loadout init",
-        timeout=600,
+        [*ssh_base,
+         f"mkdir -p ~/.dotfiles && cat > ~/.dotfiles/.loadout.toml << 'LOADOUT_EOF'\n{config_content}LOADOUT_EOF"],
+        error_prefix="write loadout config",
+        timeout=10,
+    )
+
+    # Run loadout build to merge dotfiles (not init, which needs op/browser).
+    _run_checked(
+        [*ssh_base, "/opt/homebrew/bin/loadout build"],
+        error_prefix="loadout build",
+        timeout=120,
     )
 
 
