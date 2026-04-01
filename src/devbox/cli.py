@@ -33,10 +33,12 @@ def cli() -> None:
 
 @cli.command()
 @click.argument("name")
-@click.option("--preset", required=True, help="Preset name to use for provisioning.")
+@click.option("--preset", default=None, help="Preset name (defaults to the devbox name).")
 @click.option("--dry-run", is_flag=True, default=False, help="Preview actions without executing.")
-def create(name: str, preset: str, dry_run: bool) -> None:
+def create(name: str, preset: str | None, dry_run: bool) -> None:
     """Create a new devbox."""
+    if preset is None:
+        preset = name
     try:
         if dry_run:
             result = create_devbox(name, preset, dry_run=True)
@@ -44,11 +46,21 @@ def create(name: str, preset: str, dry_run: bool) -> None:
             for action in result.get("actions", []):
                 console.print(f"  [cyan]•[/cyan] {action}")
         else:
-            with console.status(f"[bold]Creating devbox {name!r} from preset {preset!r}..."):
-                result = create_devbox(name, preset)
+            # Preflight runs outside the spinner so sudo can prompt if needed
+            console.print(f"[bold]Preparing devbox {name!r} from preset {preset!r}...[/bold]")
+            from devbox.core import preflight_devbox
+            preflight_devbox(name, preset)
+            status = console.status(f"[bold]Creating devbox {name!r}...[/bold]")
+            status.start()
+            def _on_step(msg: str) -> None:
+                status.update(f"[bold]{msg}[/bold]")
+            try:
+                result = create_devbox(name, preset, on_step=_on_step)
+            finally:
+                status.stop()
             console.print(f"[green]✓[/green] Devbox [bold]{name}[/bold] created successfully")
-            console.print(f"  Connect: [cyan]ssh dx-{name}@localhost[/cyan]")
-            console.print(f"  Status:  {result.get('status', 'ready')}")
+            console.print(f"  Connect:    [cyan]ssh dx-{name}[/cyan]")
+            console.print(f"  Claude Code: Run [cyan]claude /login[/cyan] on first SSH to authenticate")
     except (DevboxError, ValueError) as exc:
         console.print(f"[red]✗[/red] {exc}")
         sys.exit(1)

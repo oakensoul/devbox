@@ -47,6 +47,7 @@ class Preset(BaseModel):
     provider: str
     aws_profile: str = ""
     github_account: str
+    ssh_key: str = "id_ed25519_oakensoul"
     color_scheme: str = "gruvbox"
     node_version: str = "lts"
     python_version: str = "3.12"
@@ -54,6 +55,7 @@ class Preset(BaseModel):
     npm_globals: list[str] = []
     pip_globals: list[str] = []
     mcp_profile: str = ""
+    loadout_orgs: list[str] = []
     env_vars: dict[str, str] = {}
 
     @field_validator("brew_extras", "npm_globals", "pip_globals", mode="before")
@@ -85,6 +87,15 @@ class Preset(BaseModel):
         """Only allow known provider values."""
         if v not in _VALID_PROVIDERS:
             msg = f"Unknown provider: {v!r}. Must be one of: {', '.join(sorted(_VALID_PROVIDERS))}"
+            raise ValueError(msg)
+        return v
+
+    @field_validator("ssh_key")
+    @classmethod
+    def validate_ssh_key_name(cls, v: str) -> str:
+        """Reject ssh_key values with path traversal or shell metacharacters."""
+        if not v or ".." in v or "/" in v or not _SAFE_VALUE_RE.match(v):
+            msg = f"Invalid ssh_key name: {v!r}"
             raise ValueError(msg)
         return v
 

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import contextlib
+import os
 import subprocess
 
 from devbox.exceptions import MacOSUserError
@@ -148,7 +149,23 @@ def create_user(name: str) -> str:
             ["createhomedir", "-u", username],
             f"Failed to create home directory for {username}",
         )
-        disable_password(name)
+        # createhomedir can silently succeed without creating the dir on some
+        # macOS versions — fall back to mkdir + chown if needed.
+        if not os.path.isdir(home_dir):
+            _run_cmd(
+                ["mkdir", "-p", home_dir],
+                f"Failed to create home directory {home_dir}",
+            )
+            _run_cmd(
+                ["chown", f"{username}:staff", home_dir],
+                f"Failed to set ownership on {home_dir}",
+            )
+        # Set a random password — keeps the account active for SSH key auth
+        # while preventing password login. The password is never stored or
+        # displayed. (pwpolicy -disableuser would disable the entire account
+        # including SSH.)
+        import secrets
+        _run_dscl(["-passwd", f"/Users/{username}", secrets.token_urlsafe(48)])
     except MacOSUserError:
         # Roll back partial user creation
         with contextlib.suppress(MacOSUserError):

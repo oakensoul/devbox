@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -15,7 +16,9 @@ from devbox.exceptions import SudoersError
 
 SUDOERS_PATH = Path("/etc/sudoers.d/devbox")
 
-SUDOERS_CONTENT = """\
+_DX_USERNAME_RE = re.compile(r"^dx-[a-z0-9]+(-[a-z0-9]+)*$")
+
+SUDOERS_HEADER = """\
 # Managed by devbox — do not edit manually
 %admin ALL=(root) NOPASSWD: /usr/bin/dscl . -create /Users/dx-*
 %admin ALL=(root) NOPASSWD: /usr/bin/dscl . -delete /Users/dx-*
@@ -26,53 +29,44 @@ SUDOERS_CONTENT = """\
 %admin ALL=(root) NOPASSWD: /usr/sbin/dseditgroup -o checkmember -m dx-* com.apple.access_ssh
 %admin ALL=(root) NOPASSWD: /usr/sbin/systemsetup -getremotelogin
 %admin ALL=(root) NOPASSWD: /usr/bin/chown -R dx-*\\:staff /Users/dx-*
+%admin ALL=(root) NOPASSWD: /usr/bin/chown -R *\\:staff /Users/dx-*
+%admin ALL=(root) NOPASSWD: /bin/mkdir -p /Users/dx-*
 %admin ALL=(root) NOPASSWD: /usr/bin/pwpolicy -u dx-* -disableuser
 """
 
+_RUNAS_LINE_FMT = "%admin ALL=({username}) NOPASSWD: ALL\n"
 
-def is_configured(path: Path | None = None) -> bool:
-    """Check if the sudoers file exists and contains the expected content."""
+
+def _runas_line(username: str) -> str:
+    """Build a per-user runas sudoers line."""
+    if not _DX_USERNAME_RE.match(username):
+        raise SudoersError(f"Invalid devbox username for sudoers: {username!r}")
+    return _RUNAS_LINE_FMT.format(username=username)
+
+
+def _read_sudoers(path: Path | None = None) -> str:
+    """Read the current sudoers file, returning empty string if missing."""
     target = path or SUDOERS_PATH
     try:
-        return target.read_text() == SUDOERS_CONTENT
+        return target.read_text(encoding="utf-8")
     except OSError:
-        return False
+        return ""
 
 
-def validate() -> None:
-    """Raise SudoersError if the sudoers file is not correctly configured."""
-    if not is_configured():
-        raise SudoersError(
-            f"Sudoers file {SUDOERS_PATH} is not configured.\n"
-            "Run `devbox sudoers install` or manually create it with:\n"
-            f"  sudo tee {SUDOERS_PATH} <<'EOF'\n"
-            f"{SUDOERS_CONTENT}EOF\n"
-            f"  sudo chmod 0440 {SUDOERS_PATH}"
-        )
-
-
-def install(path: Path | None = None) -> None:
-    """Write the sudoers file with correct permissions.
-
-    Writes to a temporary file first, validates with ``visudo -c``,
-    then copies to the final location and sets mode 0440.
-
-    Raises :exc:`SudoersError` on failure.
-    """
+def _write_sudoers(content: str, path: Path | None = None) -> None:
+    """Validate and write sudoers content atomically via visudo + sudo tee."""
     target = path or SUDOERS_PATH
 
-    # Write content to a temporary file for validation
     try:
         tmp_fd, tmp_path = tempfile.mkstemp(prefix="devbox-sudoers-")
         try:
-            os.write(tmp_fd, SUDOERS_CONTENT.encode())
+            os.write(tmp_fd, content.encode())
         finally:
             os.close(tmp_fd)
     except OSError as exc:
         raise SudoersError(f"Failed to write temp sudoers file: {exc}") from None
 
     try:
-        # Validate with visudo before installing
         try:
             result = subprocess.run(
                 ["visudo", "-c", "-f", tmp_path],
@@ -90,11 +84,10 @@ def install(path: Path | None = None) -> None:
                 f"visudo validation failed (exit code {result.returncode}): {result.stderr.strip()}"
             )
 
-        # Copy validated file to the target via sudo tee
         try:
             result = subprocess.run(
                 ["sudo", "tee", str(target)],
-                input=SUDOERS_CONTENT,
+                input=content,
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -110,7 +103,6 @@ def install(path: Path | None = None) -> None:
                 f"{result.stderr.strip()}"
             )
 
-        # Set permissions to 0440
         try:
             result = subprocess.run(
                 ["sudo", "chmod", "0440", str(target)],
@@ -129,6 +121,52 @@ def install(path: Path | None = None) -> None:
                 f"(exit code {result.returncode}): {result.stderr.strip()}"
             )
     finally:
-        # Always clean up the temp file
         with contextlib.suppress(OSError):
             os.unlink(tmp_path)
+
+
+def is_configured(path: Path | None = None) -> bool:
+    """Check if the sudoers file exists and contains the base rules."""
+    content = _read_sudoers(path)
+    return content.startswith(SUDOERS_HEADER)
+
+
+def validate() -> None:
+    """Raise SudoersError if the sudoers file is not correctly configured."""
+    if not is_configured():
+        raise SudoersError(
+            f"Sudoers file {SUDOERS_PATH} is not configured.\n"
+            "Run `devbox sudoers install` to set it up."
+        )
+
+
+def install(path: Path | None = None) -> None:
+    """Write the base sudoers file with correct permissions."""
+    _write_sudoers(SUDOERS_HEADER, path)
+
+
+def add_user(username: str, path: Path | None = None) -> None:
+    """Add a per-devbox runas rule so admin can run commands as this user."""
+    line = _runas_line(username)
+    content = _read_sudoers(path)
+
+    if not content.startswith(SUDOERS_HEADER):
+        content = SUDOERS_HEADER
+
+    if line in content:
+        return  # already present
+
+    content += line
+    _write_sudoers(content, path)
+
+
+def remove_user(username: str, path: Path | None = None) -> None:
+    """Remove the per-devbox runas rule for this user."""
+    line = _runas_line(username)
+    content = _read_sudoers(path)
+
+    if line not in content:
+        return  # nothing to remove
+
+    content = content.replace(line, "")
+    _write_sudoers(content, path)

@@ -32,6 +32,48 @@ def _validate_username(username: str) -> None:
         raise BootstrapError(f"Invalid devbox username: {username!r}")
 
 
+def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
+    """Run loadout init as the devbox user to set up dotfiles and config.
+
+    Skips if no loadout_orgs are configured in the preset.
+    Raises :exc:`BootstrapError` on failure.
+    """
+    _validate_username(username)
+    if not preset.loadout_orgs:
+        return
+
+    import shutil
+    if not shutil.which("loadout"):
+        raise BootstrapError("loadout CLI not found — install it or remove loadout_orgs from preset")
+
+    orgs_args = " ".join(f"--orgs={shlex.quote(org)}" for org in preset.loadout_orgs)
+    user_arg = f"--user={shlex.quote(preset.github_account)}"
+
+    ssh_base = [
+        "ssh",
+        "-o", "StrictHostKeyChecking=no",
+        "-i", str(Path.home() / ".ssh" / preset.ssh_key),
+        f"{username}@localhost",
+    ]
+    gh_account = preset.github_account
+
+    # Pre-clone dotfiles repos via SSH so loadout skips the HTTPS clone
+    # (private repos require auth that HTTPS won't have).
+    for repo in ["dotfiles", "dotfiles-private"]:
+        _run_checked(
+            [*ssh_base,
+             f"test -d ~/.{repo} || git clone git@github.com:{gh_account}/{repo}.git ~/.{repo}"],
+            error_prefix=f"clone {repo}",
+            timeout=120,
+        )
+
+    _run_checked(
+        [*ssh_base, f"/opt/homebrew/bin/loadout init {user_arg} {orgs_args}"],
+        error_prefix="loadout init",
+        timeout=600,
+    )
+
+
 def install_nvm(home_dir: Path, node_version: str, username: str) -> None:
     """Install nvm and a Node.js version into the devbox user's home.
 

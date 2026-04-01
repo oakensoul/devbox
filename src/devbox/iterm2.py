@@ -40,7 +40,7 @@ def _build_profile(name: str, preset: Preset) -> dict[str, Any]:
         "Name": f"devbox::{name}",
         "Guid": f"devbox-{name}",
         "Badge Text": name,
-        "Command": f"ssh {username}@localhost",
+        "Command": f"ssh dx-{name}",
         "Custom Command": "Yes",
         "Dynamic Profile Parent Name": "Default",
         "Semantic History": {
