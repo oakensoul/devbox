@@ -12,13 +12,20 @@ from devbox.exceptions import GitHubError
 
 
 def _run_gh(
-    args: list[str], error_prefix: str, timeout: int = 15, stdin: str | None = None,
+    args: list[str],
+    error_prefix: str,
+    timeout: int = 15,
+    stdin: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run a gh CLI command, raising GitHubError on failure."""
     cmd = ["gh", *args]
     try:
         result = subprocess.run(  # noqa: S603
-            cmd, capture_output=True, text=True, timeout=timeout, input=stdin,
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            input=stdin,
         )
     except FileNotFoundError:
         raise GitHubError("gh CLI is not installed — install it with: brew install gh") from None
@@ -72,8 +79,16 @@ def add_ssh_key(title: str, public_key: str, github_account: str) -> str:
         return existing_id
 
     result = _run_gh(
-        ["api", "/user/keys", "--method", "POST",
-         "--field", f"title={title}", "--field", f"key={public_key}"],
+        [
+            "api",
+            "/user/keys",
+            "--method",
+            "POST",
+            "--field",
+            f"title={title}",
+            "--field",
+            f"key={public_key}",
+        ],
         "Failed to add SSH key to GitHub",
     )
 

@@ -168,6 +168,7 @@ def create_user(name: str) -> str:
         # displayed. (pwpolicy -disableuser would disable the entire account
         # including SSH.)
         import secrets
+
         _run_dscl(["-passwd", f"/Users/{username}", secrets.token_urlsafe(48)])
     except MacOSUserError:
         # Roll back partial user creation
@@ -215,5 +216,3 @@ def delete_user(name: str) -> None:
         f"Failed to remove home directory {home_dir}",
         timeout=600,
     )
-
-

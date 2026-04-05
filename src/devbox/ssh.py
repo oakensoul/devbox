@@ -215,6 +215,7 @@ def add_ssh_config_entry(name: str, ssh_key: str) -> None:
     # Already present — replace it
     if start in content:
         import re as _re
+
         pattern = _re.escape(start) + r".*?" + _re.escape(end)
         content = _re.sub(pattern, entry, content, flags=_re.DOTALL)
     else:
@@ -238,6 +239,7 @@ def remove_ssh_config_entry(name: str) -> None:
         return
 
     import re as _re
+
     pattern = _re.escape(start) + r".*?" + _re.escape(end)
     content = _re.sub(pattern, "", content, flags=_re.DOTALL)
     # Clean up extra blank lines

@@ -27,7 +27,6 @@ _STATUS_ICONS: dict[str, str] = {
 }
 
 
-
 @click.group()
 def cli() -> None:
     """Manage disposable SSH-only macOS dev environments."""
@@ -51,11 +50,14 @@ def create(name: str, preset: str | None, dry_run: bool) -> None:
             # Preflight runs outside the spinner so sudo can prompt if needed
             console.print(f"[bold]Preparing devbox {name!r} from preset {preset!r}...[/bold]")
             from devbox.core import preflight_devbox
+
             preflight_devbox(name, preset)
             status = console.status(f"[bold]Creating devbox {name!r}...[/bold]")
             status.start()
+
             def _on_step(msg: str) -> None:
                 status.update(f"[bold]{msg}[/bold]")
+
             try:
                 result = create_devbox(name, preset, on_step=_on_step)
             finally:

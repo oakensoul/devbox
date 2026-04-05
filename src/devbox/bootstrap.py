@@ -46,6 +46,7 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
         return
 
     import shutil
+
     loadout_bin = shutil.which("loadout")
     if not loadout_bin:
         raise BootstrapError(
@@ -54,18 +55,17 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
 
     ssh_base = [
         "ssh",
-        "-o", "StrictHostKeyChecking=no",
-        "-i", str(Path.home() / ".ssh" / preset.ssh_key),
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-i",
+        str(Path.home() / ".ssh" / preset.ssh_key),
         f"{username}@localhost",
     ]
 
     # Clone dotfiles repos via SSH (private repos need SSH auth).
     acct = preset.github_account
     for repo in ["dotfiles", "dotfiles-private"]:
-        clone_cmd = (
-            f"test -d ~/.{repo} || "
-            f"git clone git@github.com:{acct}/{repo}.git ~/.{repo}"
-        )
+        clone_cmd = f"test -d ~/.{repo} || git clone git@github.com:{acct}/{repo}.git ~/.{repo}"
         _run_checked(
             [*ssh_base, clone_cmd],
             error_prefix=f"clone {repo}",
@@ -74,14 +74,13 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
 
     # Save loadout config so `build` knows the user and orgs.
     orgs_toml = ", ".join(f'"{org}"' for org in preset.loadout_orgs)
-    config_content = (
-        f'user = "{preset.github_account}"\n'
-        f"orgs = [{orgs_toml}]\n"
-    )
+    config_content = f'user = "{preset.github_account}"\norgs = [{orgs_toml}]\n'
     _run_checked(
-        [*ssh_base,
-         "mkdir -p ~/.dotfiles && cat > ~/.dotfiles/.loadout.toml "
-         f"<< 'LOADOUT_EOF'\n{config_content}LOADOUT_EOF"],
+        [
+            *ssh_base,
+            "mkdir -p ~/.dotfiles && cat > ~/.dotfiles/.loadout.toml "
+            f"<< 'LOADOUT_EOF'\n{config_content}LOADOUT_EOF",
+        ],
         error_prefix="write loadout config",
         timeout=10,
     )
@@ -107,12 +106,14 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
     # source .zshenv — but loadout may spawn sub-shells that source .zshrc.
     q_home = shlex.quote(str(home_dir))
     _run_checked(
-        [*ssh_base,
-         f"export HOMEBREW_PREFIX={q_home}/.homebrew "
-         f"HOMEBREW_CELLAR={q_home}/.homebrew/Cellar "
-         f"HOMEBREW_REPOSITORY={q_home}/.homebrew "
-         f"PATH={q_home}/.homebrew/bin:{q_home}/.homebrew/sbin:$PATH "
-         f"&& {shlex.quote(loadout_bin)} update"],
+        [
+            *ssh_base,
+            f"export HOMEBREW_PREFIX={q_home}/.homebrew "
+            f"HOMEBREW_CELLAR={q_home}/.homebrew/Cellar "
+            f"HOMEBREW_REPOSITORY={q_home}/.homebrew "
+            f"PATH={q_home}/.homebrew/bin:{q_home}/.homebrew/sbin:$PATH "
+            f"&& {shlex.quote(loadout_bin)} update",
+        ],
         error_prefix="loadout update",
         timeout=600,
     )
@@ -241,8 +242,7 @@ def install_homebrew(home_dir: Path, username: str) -> None:
             username,
             "bash",
             "-c",
-            f"export HOME={q_home} "
-            f"&& git clone --depth=1 {shlex.quote(_HOMEBREW_REPO)} {q_prefix}",
+            f"export HOME={q_home} && git clone --depth=1 {shlex.quote(_HOMEBREW_REPO)} {q_prefix}",
         ],
         error_prefix="homebrew install",
         timeout=_TOOL_TIMEOUT,
@@ -255,8 +255,7 @@ def install_homebrew(home_dir: Path, username: str) -> None:
             username,
             "bash",
             "-c",
-            f"export HOME={q_home} "
-            f"&& {q_prefix}/bin/brew update --force --quiet",
+            f"export HOME={q_home} && {q_prefix}/bin/brew update --force --quiet",
         ],
         error_prefix="homebrew update",
         timeout=_TOOL_TIMEOUT,
@@ -425,8 +424,10 @@ def clone_repos(home_dir: Path, preset: Preset, username: str) -> None:
 
     ssh_base = [
         "ssh",
-        "-o", "StrictHostKeyChecking=no",
-        "-i", str(Path.home() / ".ssh" / preset.ssh_key),
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-i",
+        str(Path.home() / ".ssh" / preset.ssh_key),
         f"{username}@localhost",
     ]
 
@@ -444,9 +445,10 @@ def clone_repos(home_dir: Path, preset: Preset, username: str) -> None:
         dest = f"~/Developer/{shlex.quote(repo_name)}"
         try:
             _run_checked(
-                [*ssh_base,
-                 f"test -d {dest} || git clone "
-                 f"git@github.com:{shlex.quote(repo)}.git {dest}"],
+                [
+                    *ssh_base,
+                    f"test -d {dest} || git clone git@github.com:{shlex.quote(repo)}.git {dest}",
+                ],
                 error_prefix=f"clone {repo}",
                 timeout=120,
             )
@@ -465,9 +467,11 @@ def clone_repos(home_dir: Path, preset: Preset, username: str) -> None:
             dest = f"~/Developer/{shlex.quote(repo_name)}"
             try:
                 _run_checked(
-                    [*ssh_base,
-                     f"test -d {dest} || git clone "
-                     f"git@github.com:{shlex.quote(repo)}.git {dest}"],
+                    [
+                        *ssh_base,
+                        f"test -d {dest} || git clone "
+                        f"git@github.com:{shlex.quote(repo)}.git {dest}",
+                    ],
                     error_prefix=f"clone {repo}",
                     timeout=120,
                 )

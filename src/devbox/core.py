@@ -250,6 +250,7 @@ def create_devbox(
             step("Running loadout (this may take several minutes)")
             try:
                 from devbox.bootstrap import run_loadout
+
                 run_loadout(home_dir, preset_obj, username)
             except Exception as exc:
                 logger.warning("Loadout failed (non-fatal): %s", exc)
@@ -260,6 +261,7 @@ def create_devbox(
             step("Cloning repos")
             try:
                 from devbox.bootstrap import clone_repos
+
                 clone_repos(home_dir, preset_obj, username)
             except Exception as exc:
                 logger.warning("Repo cloning failed (non-fatal): %s", exc)
