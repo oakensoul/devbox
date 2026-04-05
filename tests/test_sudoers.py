@@ -59,6 +59,9 @@ class TestSudoersConstants:
     def test_content_contains_pwpolicy(self) -> None:
         assert "pwpolicy -u dx-* -disableuser" in SUDOERS_CONTENT
 
+    def test_content_does_not_reference_shared_homebrew(self) -> None:
+        assert "/opt/homebrew" not in SUDOERS_CONTENT
+
 
 class TestIsConfigured:
     def test_valid_file(self, tmp_path: Path) -> None:
@@ -86,10 +89,12 @@ class TestIsConfigured:
         sudoers_file.write_text("# Managed by devbox — do not edit manually\n")
         assert is_configured(sudoers_file) is False
 
-    def test_extra_content(self, tmp_path: Path) -> None:
+    def test_extra_content_is_allowed(self, tmp_path: Path) -> None:
+        """Extra content (e.g. per-user runas rules) is expected —
+        is_configured uses startswith so it returns True."""
         sudoers_file = tmp_path / "devbox"
         sudoers_file.write_text(SUDOERS_CONTENT + "extra line\n")
-        assert is_configured(sudoers_file) is False
+        assert is_configured(sudoers_file) is True
 
     def test_permission_error(self, tmp_path: Path) -> None:
         sudoers_file = tmp_path / "devbox"
@@ -124,7 +129,7 @@ class TestValidate:
 
     def test_error_message_contains_install_hint(self, mocker: MockerFixture) -> None:
         mocker.patch("devbox.sudoers.is_configured", return_value=False)
-        with pytest.raises(SudoersError, match="sudo tee"):
+        with pytest.raises(SudoersError, match="devbox sudoers install"):
             validate()
 
 

@@ -238,7 +238,7 @@ class TestDisablePassword:
         with pytest.raises(MacOSUserError, match="timed out"):
             disable_password("dev1")
 
-    def test_called_during_create_user(self, mocker: MockerFixture) -> None:
+    def test_create_user_sets_random_password(self, mocker: MockerFixture) -> None:
         mock_run = mocker.patch("devbox.macos.subprocess.run")
         mock_run.return_value = MagicMock(returncode=0, stdout="")
         mocker.patch("devbox.macos._user_exists", return_value=False)
@@ -246,32 +246,26 @@ class TestDisablePassword:
 
         create_user("dev1")
 
-        # pwpolicy should be called (part of the subprocess calls)
+        # create_user sets a random password via dscl -passwd (not pwpolicy)
         calls = mock_run.call_args_list
-        pwpolicy_calls = [c for c in calls if "pwpolicy" in str(c)]
-        assert len(pwpolicy_calls) == 1
-        assert "-disableuser" in str(pwpolicy_calls[0])
+        passwd_calls = [c for c in calls if "-passwd" in str(c)]
+        assert len(passwd_calls) == 1
 
-    def test_create_user_rolls_back_on_disable_failure(self, mocker: MockerFixture) -> None:
+    def test_create_user_rolls_back_on_passwd_failure(self, mocker: MockerFixture) -> None:
         mocker.patch("devbox.macos._user_exists", return_value=False)
         mocker.patch("devbox.macos._get_used_uids", return_value=set())
 
-        call_count = 0
-
         def side_effect(*args: object, **kwargs: object) -> MagicMock:
-            nonlocal call_count
-            call_count += 1
             cmd = args[0]
             assert isinstance(cmd, list)
-            # Fail on pwpolicy call (the 9th subprocess call:
-            # 7 dscl + 1 createhomedir + 1 pwpolicy)
-            if "pwpolicy" in cmd:
-                return MagicMock(returncode=1, stdout="", stderr="")
+            # Fail on the dscl -passwd call (last dscl call in create_user)
+            if "-passwd" in cmd:
+                return MagicMock(returncode=1, stdout="", stderr="dscl failed")
             return MagicMock(returncode=0, stdout="")
 
         mock_run = mocker.patch("devbox.macos.subprocess.run", side_effect=side_effect)
 
-        with pytest.raises(MacOSUserError, match="Failed to disable password"):
+        with pytest.raises(MacOSUserError, match="dscl failed"):
             create_user("dev1")
 
         # Verify cleanup was attempted (-delete call)

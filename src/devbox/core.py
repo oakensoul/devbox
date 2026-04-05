@@ -146,7 +146,7 @@ def create_devbox(
             f"Would copy SSH key {preset_obj.ssh_key!r} to /Users/{username}/.ssh/",
             "Would populate authorized_keys from parent GitHub account",
             f"Would resolve {len(preset_obj.env_vars)} environment variables",
-            "Would bootstrap development tools (nvm, pyenv, brew extras)",
+            "Would install per-devbox Homebrew and bootstrap tools (nvm, pyenv, brew extras)",
             "Would write .zshrc with heartbeat hook",
             f"Would ensure SSH access for {username}",
             f"Would create iTerm2 profile devbox::{name}",
@@ -220,7 +220,7 @@ def create_devbox(
             # Restore ownership on the home dir and only the paths we wrote.
             # Never chown -R the home dir — ~/Developer may contain large repos.
             _sudo_chown(home_dir, username, recursive=False)
-            for subpath in [".ssh", ".aws", ".devbox-env", ".zshenv", ".zshrc.local"]:
+            for subpath in [".ssh", ".aws", ".devbox-env", ".zshenv", ".zshrc.local", ".homebrew"]:
                 p = home_dir / subpath
                 if p.exists():
                     _sudo_chown(p, username)

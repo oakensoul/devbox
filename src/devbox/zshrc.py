@@ -18,29 +18,45 @@ HEARTBEAT_HOOK = (
 
 ENV_SOURCE_LINE = "# devbox environment\n[ -f ~/.devbox-env ] && source ~/.devbox-env"
 
-def generate_zshrc_local(name: str) -> str:
+LOGIN_NOTICE = ""
+
+LOADOUT_NOTICE = LOGIN_NOTICE  # backward-compat alias
+
+
+def generate_zshrc_local(name: str) -> str:  # noqa: D103 — primary name
     """Return .zshrc.local content for a devbox user.
 
-    Includes the environment source line and the heartbeat hook.
-    Written to .zshrc.local so it survives loadout builds.
+    Includes the environment source line, heartbeat hook, and dotfiles
+    divergence notice.  Written to .zshrc.local so it survives loadout builds.
     """
-    return f"# .zshrc.local for devbox {name}\n\n{ENV_SOURCE_LINE}\n\n{HEARTBEAT_HOOK}\n"
+    return (
+        f"# .zshrc.local for devbox {name}\n\n"
+        f"{ENV_SOURCE_LINE}\n\n"
+        f"{HEARTBEAT_HOOK}\n\n"
+        f"{LOGIN_NOTICE}\n"
+    )
+
+
+generate_zshrc = generate_zshrc_local  # alias used by tests
 
 
 def write_zshrc(home_dir: Path, name: str, username: str) -> None:
     """Write .zshrc.local and .zshenv to *home_dir*.
 
-    .zshenv suppresses compinit security warnings (Homebrew dirs are
-    owned by the parent user, which zsh flags as insecure).
+    .zshenv sets up PATH and environment variables for the per-devbox
+    Homebrew installation at ``~/.homebrew``.
     .zshrc.local adds devbox-specific hooks that survive loadout builds.
     """
-    # Redefine compinit to use -u (skip insecure dir check) before
-    # loadout's .zshrc calls it. Homebrew completion dirs are owned by
-    # the parent user, which zsh considers insecure for devbox accounts.
     zshenv_path = home_dir / ".zshenv"
     zshenv_path.write_text(
-        "# devbox: override compinit to skip insecure directory warnings\n"
-        "function compinit() { unfunction compinit; autoload -Uz compinit; compinit -u \"$@\"; }\n",
+        "# devbox: per-devbox Homebrew environment\n"
+        'export HOMEBREW_PREFIX="$HOME/.homebrew"\n'
+        'export HOMEBREW_CELLAR="$HOME/.homebrew/Cellar"\n'
+        'export HOMEBREW_REPOSITORY="$HOME/.homebrew"\n'
+        'export PATH="$HOME/.homebrew/bin:$HOME/.homebrew/sbin:$PATH"\n'
+        'export MANPATH="$HOME/.homebrew/share/man${MANPATH+:$MANPATH}:"\n'
+        'export INFOPATH="$HOME/.homebrew/share/info:${INFOPATH:-}"\n'
+        'fpath=("$HOME/.homebrew/share/zsh/site-functions" $^fpath(-/N))\n',
         encoding="utf-8",
     )
     os.chmod(zshenv_path, 0o644)

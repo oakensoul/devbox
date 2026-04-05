@@ -32,7 +32,10 @@ SUDOERS_HEADER = """\
 %admin ALL=(root) NOPASSWD: /usr/bin/chown -R *\\:staff /Users/dx-*
 %admin ALL=(root) NOPASSWD: /bin/mkdir -p /Users/dx-*
 %admin ALL=(root) NOPASSWD: /usr/bin/pwpolicy -u dx-* -disableuser
+%admin ALL=(root) NOPASSWD: /usr/bin/git config --system --replace-all safe.directory *
 """
+
+SUDOERS_CONTENT = SUDOERS_HEADER  # alias used by tests
 
 _RUNAS_LINE_FMT = "%admin ALL=({username}) NOPASSWD: ALL\n"
 

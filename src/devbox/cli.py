@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 
 import click
@@ -117,6 +118,11 @@ def nuke(name: str, dry_run: bool) -> None:
             for action in actions:
                 console.print(f"  [cyan]•[/cyan] {action}")
         else:
+            # Warm up sudo outside the spinner so the password prompt is visible
+            result = subprocess.run(["sudo", "-v"], timeout=60)
+            if result.returncode != 0:
+                console.print("[red]✗[/red] sudo authentication failed")
+                sys.exit(1)
             with console.status(f"[bold]Nuking devbox {name!r}..."):
                 errors = nuke_devbox(name)
             if errors:

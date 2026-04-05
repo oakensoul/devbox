@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 Robert Gunnar Johnson Jr.
 
-"""Bootstrap devbox user environments — nvm, pyenv, brew extras, npm/pip globals."""
+"""Bootstrap devbox user environments — homebrew, nvm, pyenv, brew extras, npm/pip globals."""
 
 from __future__ import annotations
 
@@ -18,11 +18,12 @@ from devbox.presets import Preset
 
 logger = logging.getLogger(__name__)
 
+_HOMEBREW_REPO = "https://github.com/Homebrew/brew"
 _NVM_INSTALL_URL = "https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh"
 _PYENV_INSTALLER_URL = "https://pyenv.run"
 
 _TOOL_TIMEOUT = 300  # seconds — generous for node/python builds
-_BREW_TIMEOUT = 120
+_BREW_TIMEOUT = 300  # compiles from source on non-standard prefix
 
 _DX_USERNAME_RE = re.compile(r"^dx-[a-z0-9]+(?:-[a-z0-9]+)*$")
 
@@ -44,7 +45,8 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
         return
 
     import shutil
-    if not shutil.which("loadout"):
+    loadout_bin = shutil.which("loadout")
+    if not loadout_bin:
         raise BootstrapError("loadout CLI not found — install it or remove loadout_orgs from preset")
 
     orgs_args = " ".join(f"--orgs={shlex.quote(org)}" for org in preset.loadout_orgs)
@@ -79,11 +81,37 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
         timeout=10,
     )
 
-    # Run loadout build to merge dotfiles (not init, which needs op/browser).
+    # Allow the devbox user to run git in directories owned by other users
+    # (e.g. /opt/homebrew and its taps are owned by the parent account).
+    # Set system-wide so loadout rebuilding ~/.gitconfig can't wipe it.
     _run_checked(
-        [*ssh_base, "/opt/homebrew/bin/loadout build"],
-        error_prefix="loadout build",
-        timeout=120,
+        ["sudo", "git", "config", "--system", "--replace-all", "safe.directory", "*"],
+        error_prefix="git safe.directory",
+        timeout=10,
+    )
+
+    # Run loadout update to pull dotfiles and apply full config
+    # (build + SSH config + Claude config + brew bundle).
+    # Use the host's loadout binary path — the devbox user may not have
+    # loadout installed in their own Homebrew yet.
+    _run_checked(
+        [*ssh_base, f"{shlex.quote(loadout_bin)} update"],
+        error_prefix="loadout update",
+        timeout=600,
+    )
+
+    # Loadout's .zshrc may contain a bare `eval "$(brew shellenv)"` for the
+    # host Homebrew.  The devbox user has its own Homebrew at ~/.homebrew
+    # (configured via .zshenv) — running the host's brew hangs or pollutes
+    # fpath with files owned by the wrong UID.  Wrap the block in a guard so
+    # the per-devbox HOMEBREW_PREFIX set in .zshenv takes precedence.
+    _run_checked(
+        [*ssh_base,
+         "sed -i '' '"
+         "s|^if \\[\\[ -d /opt/homebrew \\]\\];|if [[ -z \"$HOMEBREW_PREFIX\" ]] \\&\\& [[ -d /opt/homebrew ]];|"
+         "' ~/.zshrc"],
+        error_prefix="patch .zshrc brew guard",
+        timeout=10,
     )
 
 
@@ -174,17 +202,71 @@ def install_pyenv(home_dir: Path, python_version: str, username: str) -> None:
     )
 
 
-def install_brew_extras(packages: list[str]) -> None:
-    """Install extra Homebrew packages (as the current/parent user, NOT sudo).
+def install_homebrew(home_dir: Path, username: str) -> None:
+    """Install Homebrew to the devbox user's ``~/.homebrew`` prefix.
+
+    Uses a shallow git clone followed by ``brew update`` to initialise a
+    standalone Homebrew installation that is fully owned by the devbox user.
 
     Raises :exc:`BootstrapError` on failure.
     """
+    _validate_username(username)
+    brew_prefix = home_dir / ".homebrew"
+    q_home = shlex.quote(str(home_dir))
+    q_prefix = shlex.quote(str(brew_prefix))
+
+    _run_checked(
+        [
+            "sudo",
+            "-u",
+            username,
+            "bash",
+            "-c",
+            f"export HOME={q_home} "
+            f"&& git clone --depth=1 {shlex.quote(_HOMEBREW_REPO)} {q_prefix}",
+        ],
+        error_prefix="homebrew install",
+        timeout=_TOOL_TIMEOUT,
+    )
+
+    _run_checked(
+        [
+            "sudo",
+            "-u",
+            username,
+            "bash",
+            "-c",
+            f"export HOME={q_home} "
+            f"&& {q_prefix}/bin/brew update --force --quiet",
+        ],
+        error_prefix="homebrew update",
+        timeout=_TOOL_TIMEOUT,
+    )
+
+
+def install_brew_extras(home_dir: Path, packages: list[str], username: str) -> None:
+    """Install extra Homebrew packages into the devbox user's per-devbox Homebrew.
+
+    Raises :exc:`BootstrapError` on failure.
+    """
+    _validate_username(username)
     if not packages:
         return
 
+    brew_bin = home_dir / ".homebrew" / "bin" / "brew"
+    q_home = shlex.quote(str(home_dir))
+    q_brew = shlex.quote(str(brew_bin))
+    q_packages = " ".join(shlex.quote(p) for p in packages)
     _run_checked(
-        ["brew", "install", *packages],
-        error_prefix="brew install",
+        [
+            "sudo",
+            "-u",
+            username,
+            "bash",
+            "-c",
+            f"export HOME={q_home} && {q_brew} install {q_packages}",
+        ],
+        error_prefix="brew extras install",
         timeout=_BREW_TIMEOUT,
     )
 
@@ -334,9 +416,10 @@ def bootstrap_user(
     warnings: list[str] = []
 
     steps: list[tuple[str, Callable[[], None]]] = [
+        ("homebrew", lambda: install_homebrew(home_dir, username)),
         ("nvm/node", lambda: install_nvm(home_dir, preset.node_version, username)),
         ("pyenv/python", lambda: install_pyenv(home_dir, preset.python_version, username)),
-        ("brew extras", lambda: install_brew_extras(preset.brew_extras)),
+        ("brew extras", lambda: install_brew_extras(home_dir, preset.brew_extras, username)),
         ("npm globals", lambda: install_npm_globals(home_dir, preset.npm_globals, username)),
         ("pip globals", lambda: install_pip_globals(home_dir, preset.pip_globals, username)),
     ]

@@ -13,6 +13,8 @@ from pytest_mock import MockerFixture
 from devbox.zshrc import (
     ENV_SOURCE_LINE,
     HEARTBEAT_HOOK,
+    LOGIN_NOTICE,
+    LOADOUT_NOTICE,
     generate_zshrc,
     is_hook_installed,
     write_zshrc,
@@ -40,6 +42,14 @@ class TestConstants:
 
     def test_env_source_line_checks_file_exists(self) -> None:
         assert "[ -f ~/.devbox-env ]" in ENV_SOURCE_LINE
+
+
+class TestLoginNotice:
+    def test_login_notice_is_empty(self) -> None:
+        assert LOGIN_NOTICE == ""
+
+    def test_loadout_notice_alias(self) -> None:
+        assert LOADOUT_NOTICE is LOGIN_NOTICE
 
 
 class TestGenerateZshrc:
@@ -75,30 +85,54 @@ class TestWriteZshrc:
     def test_creates_zshrc_file(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mocker.patch("devbox.zshrc.chown_path")
         write_zshrc(tmp_path, "my-dev", "dx-my-dev")
-        assert (tmp_path / ".zshrc").exists()
+        assert (tmp_path / ".zshrc.local").exists()
 
     def test_file_contains_generated_content(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mocker.patch("devbox.zshrc.chown_path")
         write_zshrc(tmp_path, "my-dev", "dx-my-dev")
-        content = (tmp_path / ".zshrc").read_text(encoding="utf-8")
+        content = (tmp_path / ".zshrc.local").read_text(encoding="utf-8")
         assert content == generate_zshrc("my-dev")
 
     def test_file_permissions_are_0644(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mocker.patch("devbox.zshrc.chown_path")
         write_zshrc(tmp_path, "my-dev", "dx-my-dev")
-        mode = os.stat(tmp_path / ".zshrc").st_mode & 0o777
+        mode = os.stat(tmp_path / ".zshrc.local").st_mode & 0o777
+        assert mode == 0o644
+
+    def test_creates_zshenv_with_homebrew_env(self, tmp_path: Path, mocker: MockerFixture) -> None:
+        mocker.patch("devbox.zshrc.chown_path")
+        write_zshrc(tmp_path, "my-dev", "dx-my-dev")
+        zshenv = (tmp_path / ".zshenv").read_text(encoding="utf-8")
+        assert "HOMEBREW_PREFIX" in zshenv
+        assert "$HOME/.homebrew" in zshenv
+        assert ".homebrew/bin" in zshenv
+        assert ".homebrew/sbin" in zshenv
+        assert ".homebrew/share/zsh/site-functions" in zshenv
+        assert "(-/N)" in zshenv
+
+    def test_zshenv_does_not_contain_compinit(self, tmp_path: Path, mocker: MockerFixture) -> None:
+        mocker.patch("devbox.zshrc.chown_path")
+        write_zshrc(tmp_path, "my-dev", "dx-my-dev")
+        zshenv = (tmp_path / ".zshenv").read_text(encoding="utf-8")
+        assert "compinit" not in zshenv
+
+    def test_zshenv_permissions_are_0644(self, tmp_path: Path, mocker: MockerFixture) -> None:
+        mocker.patch("devbox.zshrc.chown_path")
+        write_zshrc(tmp_path, "my-dev", "dx-my-dev")
+        mode = os.stat(tmp_path / ".zshenv").st_mode & 0o777
         assert mode == 0o644
 
     def test_chown_called_with_correct_args(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mock_chown = mocker.patch("devbox.zshrc.chown_path")
         write_zshrc(tmp_path, "my-dev", "dx-my-dev")
-        mock_chown.assert_called_once_with(tmp_path / ".zshrc", "dx-my-dev")
+        calls = [str(c) for c in mock_chown.call_args_list]
+        assert any(".zshrc.local" in c and "dx-my-dev" in c for c in calls)
 
     def test_overwrites_existing_zshrc(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mocker.patch("devbox.zshrc.chown_path")
-        (tmp_path / ".zshrc").write_text("old content", encoding="utf-8")
+        (tmp_path / ".zshrc.local").write_text("old content", encoding="utf-8")
         write_zshrc(tmp_path, "my-dev", "dx-my-dev")
-        content = (tmp_path / ".zshrc").read_text(encoding="utf-8")
+        content = (tmp_path / ".zshrc.local").read_text(encoding="utf-8")
         assert "old content" not in content
         assert "my-dev" in content
 
@@ -108,20 +142,20 @@ class TestIsHookInstalled:
         assert is_hook_installed(tmp_path) is False
 
     def test_returns_false_when_zshrc_empty(self, tmp_path: Path) -> None:
-        (tmp_path / ".zshrc").write_text("", encoding="utf-8")
+        (tmp_path / ".zshrc.local").write_text("", encoding="utf-8")
         assert is_hook_installed(tmp_path) is False
 
     def test_returns_false_when_no_hook(self, tmp_path: Path) -> None:
-        (tmp_path / ".zshrc").write_text("# some other config\n", encoding="utf-8")
+        (tmp_path / ".zshrc.local").write_text("# some other config\n", encoding="utf-8")
         assert is_hook_installed(tmp_path) is False
 
     def test_returns_true_when_hook_present(self, tmp_path: Path) -> None:
-        (tmp_path / ".zshrc").write_text(generate_zshrc("test-box"), encoding="utf-8")
+        (tmp_path / ".zshrc.local").write_text(generate_zshrc("test-box"), encoding="utf-8")
         assert is_hook_installed(tmp_path) is True
 
     def test_returns_true_when_hook_among_other_content(self, tmp_path: Path) -> None:
         content = "# custom stuff\n" + HEARTBEAT_HOOK + "\n# more stuff\n"
-        (tmp_path / ".zshrc").write_text(content, encoding="utf-8")
+        (tmp_path / ".zshrc.local").write_text(content, encoding="utf-8")
         assert is_hook_installed(tmp_path) is True
 
     def test_idempotent_after_write(self, tmp_path: Path, mocker: MockerFixture) -> None:

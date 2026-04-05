@@ -69,7 +69,7 @@ def _run_dscl(args: list[str]) -> None:
             cmd,
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=60,
         )
     except FileNotFoundError:
         raise MacOSUserError("sudo or dscl not found") from None
@@ -213,5 +213,7 @@ def delete_user(name: str) -> None:
     _run_cmd(
         ["rm", "-rf", home_dir],
         f"Failed to remove home directory {home_dir}",
-        timeout=300,
+        timeout=600,
     )
+
+
