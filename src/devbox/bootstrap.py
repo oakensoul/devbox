@@ -66,9 +66,10 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
         )
 
     # Save loadout config so `build` knows the user and orgs.
+    orgs_toml = ", ".join(f'"{org}"' for org in preset.loadout_orgs)
     config_content = (
         f'user = "{preset.github_account}"\n'
-        f'orgs = [{", ".join(f\'"{org}"\' for org in preset.loadout_orgs)}]\n'
+        f"orgs = [{orgs_toml}]\n"
     )
     _run_checked(
         [*ssh_base,
@@ -254,6 +255,39 @@ def install_pip_globals(
     )
 
 
+def clone_repos(home_dir: Path, preset: Preset, username: str) -> None:
+    """Create ~/Developer and clone preset repos as the devbox user.
+
+    Skips repos that are already cloned. Skips entirely if preset.repos is empty.
+    Raises :exc:`BootstrapError` on failure.
+    """
+    _validate_username(username)
+    if not preset.repos:
+        return
+
+    ssh_base = [
+        "ssh",
+        "-o", "StrictHostKeyChecking=no",
+        "-i", str(Path.home() / ".ssh" / preset.ssh_key),
+        f"{username}@localhost",
+    ]
+
+    _run_checked(
+        [*ssh_base, "mkdir -p ~/Developer"],
+        error_prefix="create Developer dir",
+        timeout=10,
+    )
+
+    for repo in preset.repos:
+        _, repo_name = repo.split("/", 1)
+        dest = f"~/Developer/{shlex.quote(repo_name)}"
+        _run_checked(
+            [*ssh_base, f"test -d {dest} || git clone git@github.com:{shlex.quote(repo)}.git {dest}"],
+            error_prefix=f"clone {repo}",
+            timeout=120,
+        )
+
+
 def bootstrap_user(
     home_dir: Path,
     preset: Preset,
@@ -273,6 +307,7 @@ def bootstrap_user(
         ("brew extras", lambda: install_brew_extras(preset.brew_extras)),
         ("npm globals", lambda: install_npm_globals(home_dir, preset.npm_globals, username)),
         ("pip globals", lambda: install_pip_globals(home_dir, preset.pip_globals, username)),
+        ("clone repos", lambda: clone_repos(home_dir, preset, username)),
     ]
 
     for label, step_fn in steps:

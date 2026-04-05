@@ -22,6 +22,7 @@ _PACKAGE_NAME_RE = re.compile(r"^[a-zA-Z0-9@_./-]+$")
 _GITHUB_ACCOUNT_RE = GITHUB_ACCOUNT_RE
 _SAFE_VALUE_RE = re.compile(r"^[a-zA-Z0-9@_./:=-]*$")
 _ENV_KEY_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+_REPO_RE = re.compile(r"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$")
 _VALID_PROVIDERS = frozenset({"local", "aws"})
 _DANGEROUS_ENV_KEYS = frozenset(
     {
@@ -56,6 +57,8 @@ class Preset(BaseModel):
     pip_globals: list[str] = []
     mcp_profile: str = ""
     loadout_orgs: list[str] = []
+    headless: bool = True
+    repos: list[str] = []
     env_vars: dict[str, str] = {}
 
     @field_validator("brew_extras", "npm_globals", "pip_globals", mode="before")
@@ -106,6 +109,18 @@ class Preset(BaseModel):
         if not _SAFE_VALUE_RE.match(v):
             msg = f"Invalid characters in field value: {v!r}"
             raise ValueError(msg)
+        return v
+
+    @field_validator("repos")
+    @classmethod
+    def validate_repos(cls, v: object) -> object:
+        """Reject repo entries that aren't in owner/repo format."""
+        if not isinstance(v, list):
+            return v
+        for repo in v:
+            if not isinstance(repo, str) or not _REPO_RE.match(repo):
+                msg = f"Invalid repo format (expected owner/repo): {repo!r}"
+                raise ValueError(msg)
         return v
 
     @field_validator("env_vars")
