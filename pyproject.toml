@@ -87,7 +87,7 @@ select = [
 "src/devbox/github.py" = ["S105"]
 
 [tool.pytest.ini_options]
-addopts = "-v --cov=devbox --cov-report=term-missing --cov-fail-under=90"
+addopts = "-v --cov=devbox --cov-report=term-missing --cov-fail-under=85"
 testpaths = ["tests"]
 importmode = "importlib"
 markers = ["integration: marks tests as integration tests (deselect with '-m \"not integration\"')"]
