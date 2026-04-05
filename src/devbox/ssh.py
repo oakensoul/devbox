@@ -54,12 +54,15 @@ def copy_keypair(home_dir: Path, ssh_key: str = "id_ed25519") -> str:
     shutil.copy2(src_public, dst_public)
     os.chmod(dst_public, 0o644)
 
-    # Write an ssh config so git uses the right key
+    # Write an ssh config so git uses the right key.
+    # StrictHostKeyChecking=accept-new accepts GitHub's key on first use
+    # without prompting, while still detecting changed keys thereafter.
     ssh_config = ssh_dir / "config"
     ssh_config.write_text(
         f"Host github.com\n"
         f"  IdentityFile ~/.ssh/{ssh_key}\n"
-        f"  IdentitiesOnly yes\n",
+        f"  IdentitiesOnly yes\n"
+        f"  StrictHostKeyChecking accept-new\n",
         encoding="utf-8",
     )
     os.chmod(ssh_config, 0o600)
