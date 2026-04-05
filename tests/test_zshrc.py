@@ -109,6 +109,8 @@ class TestWriteZshrc:
         assert ".homebrew/sbin" in zshenv
         assert ".homebrew/share/zsh/site-functions" in zshenv
         assert "(-/N)" in zshenv
+        assert "ssh-agent" in zshenv
+        assert "ssh-add" in zshenv
 
     def test_zshenv_does_not_contain_compinit(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mocker.patch("devbox.zshrc.chown_path")

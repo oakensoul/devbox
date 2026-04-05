@@ -56,7 +56,13 @@ def write_zshrc(home_dir: Path, name: str, username: str) -> None:
         'export PATH="$HOME/.homebrew/bin:$HOME/.homebrew/sbin:$PATH"\n'
         'export MANPATH="$HOME/.homebrew/share/man${MANPATH+:$MANPATH}:"\n'
         'export INFOPATH="$HOME/.homebrew/share/info:${INFOPATH:-}"\n'
-        'fpath=("$HOME/.homebrew/share/zsh/site-functions" $^fpath(-/N))\n',
+        'fpath=("$HOME/.homebrew/share/zsh/site-functions" $^fpath(-/N))\n'
+        "\n"
+        "# devbox: SSH agent — ensure the key is loaded for git/ssh operations\n"
+        'if [[ -z "$SSH_AUTH_SOCK" ]]; then\n'
+        '    eval "$(ssh-agent -s)" >/dev/null 2>&1\n'
+        "fi\n"
+        'ssh-add -q $(awk \'/IdentityFile/{print $2}\' ~/.ssh/config) 2>/dev/null\n',
         encoding="utf-8",
     )
     os.chmod(zshenv_path, 0o644)
