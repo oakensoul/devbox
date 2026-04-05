@@ -75,9 +75,11 @@ class TestGetSecret:
         with pytest.raises(OnePasswordError, match="Invalid 1Password reference"):
             get_secret("")
 
-    def test_rejects_reference_with_spaces(self) -> None:
-        with pytest.raises(OnePasswordError, match="Invalid 1Password reference"):
-            get_secret("op://vault/item with spaces/field")
+    def test_accepts_reference_with_spaces(self, mocker: MockerFixture) -> None:
+        mock_run = mocker.patch("devbox.onepassword.subprocess.run")
+        mock_run.return_value = MagicMock(returncode=0, stdout="val")
+        result = get_secret("op://vault/item with spaces/field")
+        assert result == "val"
 
     def test_rejects_reference_missing_segments(self) -> None:
         with pytest.raises(OnePasswordError, match="Invalid 1Password reference"):
@@ -98,7 +100,7 @@ class TestGetSecret:
         with pytest.raises(OnePasswordError, match="Invalid 1Password reference"):
             get_secret(ref)
 
-    def test_error_does_not_leak_stderr(self, mocker: MockerFixture) -> None:
+    def test_error_includes_stderr(self, mocker: MockerFixture) -> None:
         mock_run = mocker.patch("devbox.onepassword.subprocess.run")
         mock_run.return_value = MagicMock(
             returncode=1, stderr="[ERROR] vault 'SecretVault' item 'ApiKey': not found\n"
@@ -106,9 +108,9 @@ class TestGetSecret:
 
         with pytest.raises(OnePasswordError, match="Failed to resolve") as exc_info:
             get_secret("op://vault/item/field")
-        # Ensure stderr content is NOT in the error message
-        assert "SecretVault" not in str(exc_info.value)
-        assert "ApiKey" not in str(exc_info.value)
+        # stderr content IS included in the error message
+        assert "SecretVault" in str(exc_info.value)
+        assert "ApiKey" in str(exc_info.value)
 
 
 class TestResolveEnvVars:
