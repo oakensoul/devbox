@@ -279,16 +279,45 @@ def clone_repos(home_dir: Path, preset: Preset, username: str) -> None:
         timeout=10,
     )
 
+    failed: list[str] = []
     for i, repo in enumerate(preset.repos):
         if i > 0:
             time.sleep(2)  # avoid GitHub SSH rate limiting on bulk clones
         _, repo_name = repo.split("/", 1)
         dest = f"~/Developer/{shlex.quote(repo_name)}"
-        _run_checked(
-            [*ssh_base, f"test -d {dest} || git clone git@github.com:{shlex.quote(repo)}.git {dest}"],
-            error_prefix=f"clone {repo}",
-            timeout=120,
-        )
+        try:
+            _run_checked(
+                [*ssh_base, f"test -d {dest} || git clone git@github.com:{shlex.quote(repo)}.git {dest}"],
+                error_prefix=f"clone {repo}",
+                timeout=120,
+            )
+        except BootstrapError:
+            failed.append(repo)
+
+    # Retry failed clones up to 2 times, with a longer delay before each attempt.
+    for attempt in range(1, 3):
+        if not failed:
+            break
+        logger.warning("Retrying %d failed clone(s) (attempt %d/2)", len(failed), attempt)
+        time.sleep(10 * attempt)
+        still_failed: list[str] = []
+        for repo in failed:
+            _, repo_name = repo.split("/", 1)
+            dest = f"~/Developer/{shlex.quote(repo_name)}"
+            try:
+                _run_checked(
+                    [*ssh_base, f"test -d {dest} || git clone git@github.com:{shlex.quote(repo)}.git {dest}"],
+                    error_prefix=f"clone {repo}",
+                    timeout=120,
+                )
+            except BootstrapError:
+                still_failed.append(repo)
+            else:
+                time.sleep(2)
+        failed = still_failed
+
+    if failed:
+        raise BootstrapError(f"Failed to clone after 2 retries: {', '.join(failed)}")
 
 
 def bootstrap_user(
