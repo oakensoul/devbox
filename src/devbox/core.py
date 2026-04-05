@@ -187,11 +187,12 @@ def create_devbox(
 
         home_dir = Path(f"/Users/{username}")
 
-        # Temporarily take ownership of home dir so Python file ops work
-        # without requiring the entire CLI to run under sudo.
-        # The finally block ensures ownership is restored even on failure.
+        # Temporarily take ownership of the home dir itself (not recursive —
+        # the dir is freshly created and nearly empty) so Python file ops
+        # can create subdirectories. The finally block restores ownership
+        # of only the specific paths we write, leaving ~/Developer untouched.
         calling_user = getpass.getuser()
-        _sudo_chown(home_dir, calling_user)
+        _sudo_chown(home_dir, calling_user, recursive=False)
         try:
             step("Copying SSH keypair")
             ssh.copy_keypair(home_dir, preset_obj.ssh_key)
@@ -216,9 +217,13 @@ def create_devbox(
             except DevboxError as exc:
                 logger.warning("zshrc write failed (non-fatal): %s", exc)
         finally:
-            # Hand ownership back to devbox user before bootstrap,
-            # which runs commands as sudo -u dx-<name>.
-            _sudo_chown(home_dir, username)
+            # Restore ownership on the home dir and only the paths we wrote.
+            # Never chown -R the home dir — ~/Developer may contain large repos.
+            _sudo_chown(home_dir, username, recursive=False)
+            for subpath in [".ssh", ".aws", ".devbox-env", ".zshenv", ".zshrc.local"]:
+                p = home_dir / subpath
+                if p.exists():
+                    _sudo_chown(p, username)
 
         step("Bootstrapping dev tools (this may take several minutes)")
         warnings = bootstrap_user(home_dir, preset_obj, username)
@@ -435,12 +440,19 @@ def rebuild_devbox(
 _SAFE_USERNAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
-def _sudo_chown(path: Path, user: str) -> None:
-    """Recursively chown *path* to *user*:staff via sudo."""
+def _sudo_chown(path: Path, user: str, *, recursive: bool = True) -> None:
+    """Chown *path* to *user*:staff via sudo.
+
+    Pass ``recursive=False`` to chown only the path itself, not its contents.
+    """
     if not _SAFE_USERNAME_RE.match(user) or len(user) > 64:
         raise DevboxError(f"Invalid username for chown: {user!r}")
+    cmd = ["sudo", "chown"]
+    if recursive:
+        cmd.append("-R")
+    cmd.extend([f"{user}:staff", str(path)])
     result = subprocess.run(
-        ["sudo", "chown", "-R", f"{user}:staff", str(path)],
+        cmd,
         capture_output=True,
         text=True,
         timeout=30,
