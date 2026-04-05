@@ -127,7 +127,7 @@ def chown_path(path: Path, username: str) -> None:
             ["sudo", "chown", "-R", f"{username}:staff", str(path)],
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=60,
         )
     except FileNotFoundError:
         raise SSHError("chown command not found") from None

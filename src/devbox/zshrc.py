@@ -18,7 +18,6 @@ HEARTBEAT_HOOK = (
 
 ENV_SOURCE_LINE = "# devbox environment\n[ -f ~/.devbox-env ] && source ~/.devbox-env"
 
-
 def generate_zshrc_local(name: str) -> str:
     """Return .zshrc.local content for a devbox user.
 
@@ -29,11 +28,24 @@ def generate_zshrc_local(name: str) -> str:
 
 
 def write_zshrc(home_dir: Path, name: str, username: str) -> None:
-    """Write .zshrc.local to *home_dir* with correct permissions and ownership.
+    """Write .zshrc.local and .zshenv to *home_dir*.
 
-    The file is written with mode 0644 and chowned to *username* via
-    :func:`devbox.ssh.chown_path`.
+    .zshenv suppresses compinit security warnings (Homebrew dirs are
+    owned by the parent user, which zsh flags as insecure).
+    .zshrc.local adds devbox-specific hooks that survive loadout builds.
     """
+    # Redefine compinit to use -u (skip insecure dir check) before
+    # loadout's .zshrc calls it. Homebrew completion dirs are owned by
+    # the parent user, which zsh considers insecure for devbox accounts.
+    zshenv_path = home_dir / ".zshenv"
+    zshenv_path.write_text(
+        "# devbox: override compinit to skip insecure directory warnings\n"
+        "function compinit() { unfunction compinit; autoload -Uz compinit; compinit -u \"$@\"; }\n",
+        encoding="utf-8",
+    )
+    os.chmod(zshenv_path, 0o644)
+    chown_path(zshenv_path, username)
+
     zshrc_path = home_dir / ".zshrc.local"
     zshrc_path.write_text(generate_zshrc_local(name), encoding="utf-8")
     os.chmod(zshrc_path, 0o644)
