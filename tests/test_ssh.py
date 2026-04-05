@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -17,90 +16,81 @@ from devbox.exceptions import SSHError
 from devbox.ssh import (
     _get_parent_github_user,
     _validate_ssh_keys,
-    generate_keypair,
+    copy_keypair,
     populate_authorized_keys,
 )
 
 
-class TestGenerateKeypair:
-    def test_calls_ssh_keygen(self, tmp_path: Path, mocker: MockerFixture) -> None:
-        home = tmp_path / "dx-dev1"
-        home.mkdir()
-
-        def fake_keygen(*args: object, **kwargs: object) -> MagicMock:
-            ssh_dir = home / ".ssh"
-            ssh_dir.mkdir(parents=True, exist_ok=True)
-            (ssh_dir / "id_ed25519").write_text("PRIVATE KEY")
-            (ssh_dir / "id_ed25519.pub").write_text("ssh-ed25519 AAAA devbox-dx-dev1\n")
-            return MagicMock(returncode=0)
-
-        mock_run = mocker.patch("devbox.ssh.subprocess.run", side_effect=fake_keygen)
-
-        result = generate_keypair(home)
-
-        assert result == "ssh-ed25519 AAAA devbox-dx-dev1"
-        mock_run.assert_called_once()
-        call_args = mock_run.call_args[0][0]
-        assert call_args[0] == "ssh-keygen"
-        assert "-t" in call_args
-        assert "ed25519" in call_args
-
-    def test_raises_if_key_exists(self, tmp_path: Path) -> None:
-        home = tmp_path / "dx-dev1"
-        ssh_dir = home / ".ssh"
-        ssh_dir.mkdir(parents=True)
-        (ssh_dir / "id_ed25519").write_text("existing")
-
-        with pytest.raises(SSHError, match="already exists"):
-            generate_keypair(home)
-
-    def test_raises_if_ssh_keygen_missing(self, tmp_path: Path, mocker: MockerFixture) -> None:
-        home = tmp_path / "dx-dev1"
-        home.mkdir()
-        mocker.patch("devbox.ssh.subprocess.run", side_effect=FileNotFoundError)
-
-        with pytest.raises(SSHError, match="ssh-keygen is not available"):
-            generate_keypair(home)
-
-    def test_raises_on_nonzero_exit(self, tmp_path: Path, mocker: MockerFixture) -> None:
-        home = tmp_path / "dx-dev1"
-        home.mkdir()
-        mock_run = mocker.patch("devbox.ssh.subprocess.run")
-        mock_run.return_value = MagicMock(returncode=1)
-
-        with pytest.raises(SSHError, match="ssh-keygen failed"):
-            generate_keypair(home)
-
-    def test_raises_on_timeout(self, tmp_path: Path, mocker: MockerFixture) -> None:
-        home = tmp_path / "dx-dev1"
-        home.mkdir()
+class TestCopyKeypair:
+    def _setup_parent_keys(self, mocker: MockerFixture, tmp_path: Path) -> Path:
+        """Create fake parent SSH keys and patch Path.home() to use them."""
+        parent_home = tmp_path / "parent"
+        parent_ssh = parent_home / ".ssh"
+        parent_ssh.mkdir(parents=True)
+        (parent_ssh / "id_ed25519_test").write_text("PRIVATE KEY")
+        (parent_ssh / "id_ed25519_test.pub").write_text("ssh-ed25519 AAAA user@host\n")
+        mocker.patch("devbox.ssh.Path.home", return_value=parent_home)
+        # Patch subprocess.run for ssh-keyscan (known_hosts population)
         mocker.patch(
             "devbox.ssh.subprocess.run",
-            side_effect=subprocess.TimeoutExpired(cmd="ssh-keygen", timeout=30),
+            return_value=MagicMock(returncode=0, stdout="github.com ssh-ed25519 AAAA\n"),
         )
+        return parent_home
 
-        with pytest.raises(SSHError, match="timed out"):
-            generate_keypair(home)
-
-    def test_sets_correct_permissions(self, tmp_path: Path, mocker: MockerFixture) -> None:
+    def test_copies_keypair_and_returns_public_key(
+        self, tmp_path: Path, mocker: MockerFixture
+    ) -> None:
+        self._setup_parent_keys(mocker, tmp_path)
         home = tmp_path / "dx-dev1"
         home.mkdir()
 
-        def fake_keygen(*args: object, **kwargs: object) -> MagicMock:
-            ssh_dir = home / ".ssh"
-            ssh_dir.mkdir(parents=True, exist_ok=True)
-            (ssh_dir / "id_ed25519").write_text("PRIVATE")
-            (ssh_dir / "id_ed25519.pub").write_text("ssh-ed25519 AAAA test\n")
-            return MagicMock(returncode=0)
+        result = copy_keypair(home, "id_ed25519_test")
 
-        mocker.patch("devbox.ssh.subprocess.run", side_effect=fake_keygen)
+        assert result == "ssh-ed25519 AAAA user@host"
+        assert (home / ".ssh" / "id_ed25519_test").exists()
+        assert (home / ".ssh" / "id_ed25519_test.pub").exists()
 
-        generate_keypair(home)
+    def test_raises_if_private_key_missing(self, tmp_path: Path, mocker: MockerFixture) -> None:
+        parent_home = tmp_path / "parent"
+        (parent_home / ".ssh").mkdir(parents=True)
+        mocker.patch("devbox.ssh.Path.home", return_value=parent_home)
+
+        home = tmp_path / "dx-dev1"
+        home.mkdir()
+
+        with pytest.raises(SSHError, match="not found"):
+            copy_keypair(home, "id_ed25519_test")
+
+    def test_sets_correct_permissions(self, tmp_path: Path, mocker: MockerFixture) -> None:
+        self._setup_parent_keys(mocker, tmp_path)
+        home = tmp_path / "dx-dev1"
+        home.mkdir()
+
+        copy_keypair(home, "id_ed25519_test")
 
         ssh_dir = home / ".ssh"
         assert (ssh_dir.stat().st_mode & 0o777) == 0o700
-        assert ((ssh_dir / "id_ed25519").stat().st_mode & 0o777) == 0o600
-        assert ((ssh_dir / "id_ed25519.pub").stat().st_mode & 0o777) == 0o644
+        assert ((ssh_dir / "id_ed25519_test").stat().st_mode & 0o777) == 0o600
+        assert ((ssh_dir / "id_ed25519_test.pub").stat().st_mode & 0o777) == 0o644
+
+    def test_writes_ssh_config(self, tmp_path: Path, mocker: MockerFixture) -> None:
+        self._setup_parent_keys(mocker, tmp_path)
+        home = tmp_path / "dx-dev1"
+        home.mkdir()
+
+        copy_keypair(home, "id_ed25519_test")
+
+        config = (home / ".ssh" / "config").read_text(encoding="utf-8")
+        assert "IdentityFile ~/.ssh/id_ed25519_test" in config
+        assert "github.com" in config
+
+    def test_rejects_path_traversal(self, tmp_path: Path, mocker: MockerFixture) -> None:
+        self._setup_parent_keys(mocker, tmp_path)
+        home = tmp_path / "dx-dev1"
+        home.mkdir()
+
+        with pytest.raises(SSHError, match="Invalid"):
+            copy_keypair(home, "../etc/passwd")
 
 
 class TestValidateSSHKeys:
