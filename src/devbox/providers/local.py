@@ -39,7 +39,7 @@ class LocalProvider(Provider):
         username = macos.create_user(name)
         home_dir = Path(f"/Users/{username}")
 
-        public_key = ssh.generate_keypair(home_dir)
+        public_key = ssh.copy_keypair(home_dir)
         ssh.populate_authorized_keys(home_dir, target_user=username)
 
         key_title = f"devbox:{name}"
