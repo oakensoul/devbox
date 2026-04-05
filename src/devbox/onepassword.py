@@ -11,7 +11,7 @@ import subprocess
 from devbox.exceptions import OnePasswordError
 
 # Require exactly 3 path segments (vault/item/field), max 512 chars.
-_OP_REF_RE = re.compile(r"^op://[\w.@-]+/[\w.@-]+/[\w.@:-]+$")
+_OP_REF_RE = re.compile(r"^op://[\w.@ -]+/[\w.@ -]+/[\w.@: -]+$")
 
 
 def get_secret(reference: str, timeout: int = 10) -> str:
@@ -35,9 +35,10 @@ def get_secret(reference: str, timeout: int = 10) -> str:
         raise OnePasswordError("1Password CLI timed out — is the vault locked?") from None
 
     if result.returncode != 0:
+        stderr = result.stderr.strip()
         raise OnePasswordError(
-            f"Failed to resolve 1Password reference (exit code {result.returncode}). "
-            "Check that the reference is valid and the vault is unlocked."
+            f"Failed to resolve 1Password reference (exit code {result.returncode}): "
+            f"{reference!r} — {stderr or 'no error details'}"
         )
 
     return result.stdout.strip()

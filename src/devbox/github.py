@@ -1,65 +1,102 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 Robert Gunnar Johnson Jr.
 
-"""GitHub API — SSH key lifecycle (add/remove)."""
+"""GitHub SSH key lifecycle via the gh CLI."""
 
 from __future__ import annotations
 
-import requests
+import json
+import subprocess
 
 from devbox.exceptions import GitHubError
-from devbox.onepassword import get_secret
-
-_GITHUB_API = "https://api.github.com"
-_OP_TOKEN_REF = "op://Development/github-{account}-token/credential"
 
 
-def _get_token(github_account: str) -> str:
-    """Resolve the GitHub PAT from 1Password for the given account."""
-    ref = _OP_TOKEN_REF.format(account=github_account)
-    return get_secret(ref)
+def _run_gh(
+    args: list[str],
+    error_prefix: str,
+    timeout: int = 15,
+    stdin: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run a gh CLI command, raising GitHubError on failure."""
+    cmd = ["gh", *args]
+    try:
+        result = subprocess.run(  # noqa: S603
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            input=stdin,
+        )
+    except FileNotFoundError:
+        raise GitHubError("gh CLI is not installed — install it with: brew install gh") from None
+    except subprocess.TimeoutExpired:
+        raise GitHubError(f"{error_prefix}: timed out") from None
+
+    if result.returncode != 0:
+        stderr = result.stderr.strip()
+        raise GitHubError(f"{error_prefix} (exit code {result.returncode}): {stderr}")
+
+    return result
 
 
-def _headers(token: str) -> dict[str, str]:
-    """Build GitHub API request headers with Bearer auth."""
-    return {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
+def _find_existing_key(public_key: str) -> str | None:
+    """Check if the public key is already registered on GitHub.
+
+    Returns the key ID if found, None otherwise.
+    """
+    result = _run_gh(
+        ["api", "/user/keys", "--paginate"],
+        "Failed to list SSH keys",
+    )
+
+    try:
+        keys = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise GitHubError(f"Failed to parse GitHub keys response: {exc}") from exc
+
+    # Compare just the key type + data, ignoring the comment suffix
+    target_parts = public_key.strip().split()[:2]
+    target = " ".join(target_parts)
+
+    for entry in keys:
+        existing_parts = entry.get("key", "").strip().split()[:2]
+        if " ".join(existing_parts) == target:
+            return str(entry["id"])
+
+    return None
 
 
 def add_ssh_key(title: str, public_key: str, github_account: str) -> str:
     """Upload an SSH public key to GitHub. Returns the key ID as a string.
 
-    Raises :exc:`GitHubError` on failure (auth, rate limit, duplicate key).
+    If the key already exists, returns the existing key's ID without
+    creating a duplicate.
+
+    Raises :exc:`GitHubError` on failure.
     """
-    token = _get_token(github_account)
-    url = f"{_GITHUB_API}/user/keys"
+    existing_id = _find_existing_key(public_key)
+    if existing_id is not None:
+        return existing_id
+
+    result = _run_gh(
+        [
+            "api",
+            "/user/keys",
+            "--method",
+            "POST",
+            "--field",
+            f"title={title}",
+            "--field",
+            f"key={public_key}",
+        ],
+        "Failed to add SSH key to GitHub",
+    )
 
     try:
-        response = requests.post(
-            url,
-            headers=_headers(token),
-            json={"title": title, "key": public_key},
-            timeout=15,
-        )
-    except requests.RequestException as exc:
-        raise GitHubError(f"GitHub API request failed: {exc}") from exc
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise GitHubError(f"Failed to parse GitHub add-key response: {exc}") from exc
 
-    if response.status_code == 422:
-        raise GitHubError("SSH key already exists on GitHub (duplicate)")
-
-    if response.status_code == 401:
-        raise GitHubError("GitHub authentication failed — check your token")
-
-    if response.status_code == 403:
-        raise GitHubError("GitHub API rate limit exceeded or forbidden")
-
-    if response.status_code != 201:
-        raise GitHubError(f"GitHub API returned unexpected status {response.status_code}")
-
-    data = response.json()
     key_id = data.get("id")
     if key_id is None:
         raise GitHubError("GitHub API response missing key ID")
@@ -70,32 +107,18 @@ def add_ssh_key(title: str, public_key: str, github_account: str) -> str:
 def remove_ssh_key(key_id: str, github_account: str) -> None:
     """Remove an SSH key from GitHub by key ID string.
 
-    Idempotent — does not raise if the key is already gone (404).
+    Idempotent — does not raise if the key is already gone.
     Raises :exc:`GitHubError` on other failures.
     """
     if not key_id.isdigit():
         raise GitHubError(f"Invalid key ID: {key_id!r} (must be numeric)")
 
-    token = _get_token(github_account)
-    url = f"{_GITHUB_API}/user/keys/{key_id}"
-
     try:
-        response = requests.delete(
-            url,
-            headers=_headers(token),
-            timeout=15,
+        _run_gh(
+            ["api", "--method", "DELETE", f"/user/keys/{key_id}"],
+            "Failed to remove SSH key from GitHub",
         )
-    except requests.RequestException as exc:
-        raise GitHubError(f"GitHub API request failed: {exc}") from exc
-
-    if response.status_code == 404:
-        return  # already gone — idempotent
-
-    if response.status_code == 401:
-        raise GitHubError("GitHub authentication failed — check your token")
-
-    if response.status_code == 403:
-        raise GitHubError("GitHub API rate limit exceeded or forbidden")
-
-    if response.status_code not in (204, 200):
-        raise GitHubError(f"GitHub API returned unexpected status {response.status_code}")
+    except GitHubError as exc:
+        if "404" in str(exc) or "not found" in str(exc).lower():
+            return  # already gone — idempotent
+        raise

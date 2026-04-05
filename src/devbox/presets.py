@@ -22,6 +22,7 @@ _PACKAGE_NAME_RE = re.compile(r"^[a-zA-Z0-9@_./-]+$")
 _GITHUB_ACCOUNT_RE = GITHUB_ACCOUNT_RE
 _SAFE_VALUE_RE = re.compile(r"^[a-zA-Z0-9@_./:=-]*$")
 _ENV_KEY_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+_REPO_RE = re.compile(r"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$")
 _VALID_PROVIDERS = frozenset({"local", "aws"})
 _DANGEROUS_ENV_KEYS = frozenset(
     {
@@ -47,6 +48,7 @@ class Preset(BaseModel):
     provider: str
     aws_profile: str = ""
     github_account: str
+    ssh_key: str = "id_ed25519_oakensoul"
     color_scheme: str = "gruvbox"
     node_version: str = "lts"
     python_version: str = "3.12"
@@ -54,6 +56,9 @@ class Preset(BaseModel):
     npm_globals: list[str] = []
     pip_globals: list[str] = []
     mcp_profile: str = ""
+    loadout_orgs: list[str] = []
+    headless: bool = True
+    repos: list[str] = []
     env_vars: dict[str, str] = {}
 
     @field_validator("brew_extras", "npm_globals", "pip_globals", mode="before")
@@ -88,6 +93,15 @@ class Preset(BaseModel):
             raise ValueError(msg)
         return v
 
+    @field_validator("ssh_key")
+    @classmethod
+    def validate_ssh_key_name(cls, v: str) -> str:
+        """Reject ssh_key values with path traversal or shell metacharacters."""
+        if not v or ".." in v or "/" in v or not _SAFE_VALUE_RE.match(v):
+            msg = f"Invalid ssh_key name: {v!r}"
+            raise ValueError(msg)
+        return v
+
     @field_validator("aws_profile", "color_scheme", "node_version", "python_version", "mcp_profile")
     @classmethod
     def validate_safe_string(cls, v: str) -> str:
@@ -95,6 +109,18 @@ class Preset(BaseModel):
         if not _SAFE_VALUE_RE.match(v):
             msg = f"Invalid characters in field value: {v!r}"
             raise ValueError(msg)
+        return v
+
+    @field_validator("repos")
+    @classmethod
+    def validate_repos(cls, v: object) -> object:
+        """Reject repo entries that aren't in owner/repo format."""
+        if not isinstance(v, list):
+            return v
+        for repo in v:
+            if not isinstance(repo, str) or not _REPO_RE.match(repo):
+                msg = f"Invalid repo format (expected owner/repo): {repo!r}"
+                raise ValueError(msg)
         return v
 
     @field_validator("env_vars")

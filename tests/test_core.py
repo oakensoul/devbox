@@ -10,7 +10,6 @@ import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 from pytest_mock import MockerFixture
@@ -230,16 +229,19 @@ class TestCreateDevbox:
         _make_registry(registry_path, [])
 
         mocker.patch("devbox.core.macos.create_user", return_value="dx-mybox")
-        mocker.patch("devbox.core.ssh.generate_keypair", return_value="ssh-ed25519 AAAA...")
+        mocker.patch("devbox.core.ssh.copy_keypair", return_value="ssh-ed25519 AAAA...")
         mocker.patch("devbox.core.ssh.populate_authorized_keys")
-        mocker.patch("devbox.core.github.add_ssh_key", return_value="12345")
-        mocker.patch("devbox.core.github.remove_ssh_key")
+        mocker.patch("devbox.core.ssh.add_ssh_config_entry")
+        mocker.patch("devbox.core.ssh.remove_ssh_config_entry")
         mocker.patch("devbox.core.onepassword.resolve_env_vars", return_value={"A": "B"})
         mocker.patch("devbox.core.sshd.ensure_ssh_access")
         mocker.patch("devbox.core.sshd.remove_user_from_ssh_group")
         mocker.patch("devbox.core.iterm2.create_profile")
         mocker.patch("devbox.core.iterm2.remove_profile")
         mocker.patch("devbox.core.macos.delete_user")
+        mocker.patch("devbox.core.sudoers.add_user")
+        mocker.patch("devbox.core.sudoers.remove_user")
+        mocker.patch("devbox.core._sudo_chown")
         # write_env_file writes to /Users/dx-mybox which won't exist; mock it
         mocker.patch("devbox.core.write_env_file")
         mocker.patch("devbox.core.inject_auth")
@@ -266,7 +268,7 @@ class TestCreateDevbox:
             setup["registry_path"],
             [_entry("mybox", status=DevboxStatus.READY)],
         )
-        with pytest.raises(DevboxError, match="already exists"):
+        with pytest.raises(Exception, match="Duplicate devbox name"):
             create_devbox(
                 "mybox",
                 "test-preset",
@@ -300,32 +302,11 @@ class TestCreateDevbox:
 
         assert find_entry("mybox", setup["registry_path"]) is None
 
-    def test_rollback_on_github_failure(self, setup: dict[str, Any], mocker: MockerFixture) -> None:
-        mocker.patch(
-            "devbox.core.github.add_ssh_key",
-            side_effect=DevboxError("github error"),
-        )
-        mock_delete_user = mocker.patch("devbox.core.macos.delete_user")
-        with pytest.raises(DevboxError, match="github error"):
-            create_devbox(
-                "mybox",
-                "test-preset",
-                registry_path=setup["registry_path"],
-                presets_dir=setup["presets_dir"],
-            )
-        # macOS user should be rolled back
-        mock_delete_user.assert_called_once()
-        # Registry should be cleaned up
-        from devbox.registry import find_entry
-
-        assert find_entry("mybox", setup["registry_path"]) is None
-
     def test_rollback_on_sshd_failure(self, setup: dict[str, Any], mocker: MockerFixture) -> None:
         mocker.patch(
             "devbox.core.sshd.ensure_ssh_access",
             side_effect=DevboxError("sshd error"),
         )
-        mock_remove_key = mocker.patch("devbox.core.github.remove_ssh_key")
         with pytest.raises(DevboxError, match="sshd error"):
             create_devbox(
                 "mybox",
@@ -333,7 +314,6 @@ class TestCreateDevbox:
                 registry_path=setup["registry_path"],
                 presets_dir=setup["presets_dir"],
             )
-        mock_remove_key.assert_called_once()
 
     def test_rollback_on_iterm2_failure(self, setup: dict[str, Any], mocker: MockerFixture) -> None:
         mocker.patch(
@@ -384,15 +364,6 @@ class TestCreateDevbox:
         )
         mock_resolve.assert_called_once_with({"SECRET": "op://vault/item/field"})
         mock_write.assert_called_once()
-
-    def test_registry_entry_has_github_key_id(self, setup: dict[str, Any]) -> None:
-        result = create_devbox(
-            "mybox",
-            "test-preset",
-            registry_path=setup["registry_path"],
-            presets_dir=setup["presets_dir"],
-        )
-        assert result["github_key_id"] == "12345"
 
 
 # ---------------------------------------------------------------------------
@@ -583,11 +554,11 @@ class TestNukeDevbox:
             [_entry("mybox", status=DevboxStatus.READY, github_key_id="999")],
         )
 
-        mocker.patch("devbox.core.load_preset", return_value=MagicMock(github_account="testuser"))
-        mocker.patch("devbox.core.github.remove_ssh_key")
+        mocker.patch("devbox.core.sudoers.remove_user")
         mocker.patch("devbox.core.sshd.remove_user_from_ssh_group")
         mocker.patch("devbox.core.macos.delete_user")
         mocker.patch("devbox.core.iterm2.remove_profile")
+        mocker.patch("devbox.core.ssh.remove_ssh_config_entry")
 
         return {"registry_path": registry_path, "presets_dir": presets_dir}
 
@@ -605,19 +576,6 @@ class TestNukeDevbox:
     def test_invalid_name_raises(self, setup: dict[str, Any]) -> None:
         with pytest.raises(ValueError, match="kebab-case"):
             nuke_devbox("Bad_Name", registry_path=setup["registry_path"])
-
-    def test_continues_on_github_error(self, setup: dict[str, Any], mocker: MockerFixture) -> None:
-        mocker.patch(
-            "devbox.core.github.remove_ssh_key",
-            side_effect=DevboxError("github down"),
-        )
-        # Should not raise — errors are logged but nuke continues
-        errors = nuke_devbox("mybox", registry_path=setup["registry_path"])
-        assert len(errors) == 1
-        assert "github down" in errors[0]
-        from devbox.registry import find_entry
-
-        assert find_entry("mybox", setup["registry_path"]) is None
 
     def test_continues_on_sshd_error(self, setup: dict[str, Any], mocker: MockerFixture) -> None:
         mocker.patch(
@@ -660,43 +618,15 @@ class TestNukeDevbox:
         # iterm2 is not critical, entry should be removed
         assert find_entry("mybox", setup["registry_path"]) is None
 
-    def test_no_github_key_skips_removal(
-        self, setup: dict[str, Any], mocker: MockerFixture
-    ) -> None:
-        # Replace registry with entry that has no github_key_id
-        _make_registry(
-            setup["registry_path"],
-            [_entry("mybox", status=DevboxStatus.READY, github_key_id=None)],
-        )
-        mock_remove = mocker.patch("devbox.core.github.remove_ssh_key")
-        errors = nuke_devbox("mybox", registry_path=setup["registry_path"])
-        assert errors == []
-        mock_remove.assert_not_called()
-
     def test_catches_generic_exception(self, setup: dict[str, Any], mocker: MockerFixture) -> None:
         """nuke_devbox catches Exception, not just DevboxError."""
         mocker.patch(
-            "devbox.core.github.remove_ssh_key",
+            "devbox.core.sshd.remove_user_from_ssh_group",
             side_effect=RuntimeError("unexpected"),
         )
         errors = nuke_devbox("mybox", registry_path=setup["registry_path"])
         assert len(errors) == 1
         assert "unexpected" in errors[0]
-
-    def test_load_preset_failure_during_github_key_removal(
-        self, setup: dict[str, Any], mocker: MockerFixture
-    ) -> None:
-        """If load_preset fails during GitHub key removal, error is captured and nuke continues."""
-        mocker.patch(
-            "devbox.core.load_preset",
-            side_effect=DevboxError("preset file missing"),
-        )
-        errors = nuke_devbox("mybox", registry_path=setup["registry_path"])
-        assert any("preset file missing" in e for e in errors)
-        from devbox.registry import find_entry
-
-        # Non-critical failure: registry entry should still be removed
-        assert find_entry("mybox", setup["registry_path"]) is None
 
 
 # ---------------------------------------------------------------------------
@@ -819,10 +749,8 @@ class TestCreateDevboxDryRun:
 
         # Mock all side-effecting modules to detect if they are called
         mocker.patch("devbox.core.macos.create_user", return_value="dx-mybox")
-        mocker.patch("devbox.core.ssh.generate_keypair", return_value="ssh-ed25519 AAAA...")
+        mocker.patch("devbox.core.ssh.copy_keypair", return_value="ssh-ed25519 AAAA...")
         mocker.patch("devbox.core.ssh.populate_authorized_keys")
-        mocker.patch("devbox.core.github.add_ssh_key", return_value="12345")
-        mocker.patch("devbox.core.github.remove_ssh_key")
         mocker.patch("devbox.core.onepassword.resolve_env_vars", return_value={"A": "B"})
         mocker.patch("devbox.core.sshd.ensure_ssh_access")
         mocker.patch("devbox.core.sshd.remove_user_from_ssh_group")
@@ -858,7 +786,7 @@ class TestCreateDevboxDryRun:
         )
         actions = result["actions"]
         assert isinstance(actions, list)
-        assert len(actions) == 12
+        assert len(actions) == 9
 
     def test_action_messages_contain_expected_text(self, setup: dict[str, Any]) -> None:
         result = create_devbox(
@@ -871,22 +799,18 @@ class TestCreateDevboxDryRun:
         actions = result["actions"]
         assert any("Would create registry entry" in a for a in actions)
         assert any("Would create macOS user dx-mybox" in a for a in actions)
-        assert any("Would generate SSH keypair at /Users/dx-mybox/.ssh/" in a for a in actions)
+        assert any("Would copy SSH key" in a for a in actions)
         assert any("Would populate authorized_keys" in a for a in actions)
-        assert any("Would register SSH key with GitHub account testuser" in a for a in actions)
         assert any("Would resolve 2 environment variables" in a for a in actions)
-        assert any("Would inject Claude Code auth credentials" in a for a in actions)
-        assert any("Would bootstrap development tools" in a for a in actions)
+        assert any("Would install per-devbox Homebrew" in a for a in actions)
         assert any("Would write .zshrc with heartbeat hook" in a for a in actions)
         assert any("Would ensure SSH access for dx-mybox" in a for a in actions)
         assert any("Would create iTerm2 profile devbox::mybox" in a for a in actions)
-        assert any("Would disable password authentication" in a for a in actions)
 
     def test_no_side_effects(self, setup: dict[str, Any], mocker: MockerFixture) -> None:
         """Dry run must not call any side-effecting functions."""
         mock_create_user = mocker.patch("devbox.core.macos.create_user")
-        mock_generate_keypair = mocker.patch("devbox.core.ssh.generate_keypair")
-        mock_add_ssh_key = mocker.patch("devbox.core.github.add_ssh_key")
+        mock_copy_keypair = mocker.patch("devbox.core.ssh.copy_keypair")
         mock_ensure_ssh = mocker.patch("devbox.core.sshd.ensure_ssh_access")
         mock_create_profile = mocker.patch("devbox.core.iterm2.create_profile")
         mock_resolve_env = mocker.patch("devbox.core.onepassword.resolve_env_vars")
@@ -900,8 +824,7 @@ class TestCreateDevboxDryRun:
         )
         # None of the side-effecting mocks should have been called
         mock_create_user.assert_not_called()
-        mock_generate_keypair.assert_not_called()
-        mock_add_ssh_key.assert_not_called()
+        mock_copy_keypair.assert_not_called()
         mock_ensure_ssh.assert_not_called()
         mock_create_profile.assert_not_called()
         mock_resolve_env.assert_not_called()
@@ -919,20 +842,20 @@ class TestCreateDevboxDryRun:
 
         assert find_entry("mybox", setup["registry_path"]) is None
 
-    def test_duplicate_name_still_raises(self, setup: dict[str, Any]) -> None:
-        """Dry run still validates for duplicate names."""
+    def test_duplicate_name_succeeds_in_dry_run(self, setup: dict[str, Any]) -> None:
+        """Dry run does not check for duplicate names (validation is deferred to real run)."""
         _make_registry(
             setup["registry_path"],
             [_entry("mybox", status=DevboxStatus.READY)],
         )
-        with pytest.raises(DevboxError, match="already exists"):
-            create_devbox(
-                "mybox",
-                "test-preset",
-                registry_path=setup["registry_path"],
-                presets_dir=setup["presets_dir"],
-                dry_run=True,
-            )
+        result = create_devbox(
+            "mybox",
+            "test-preset",
+            registry_path=setup["registry_path"],
+            presets_dir=setup["presets_dir"],
+            dry_run=True,
+        )
+        assert result["status"] == "dry-run"
 
     def test_invalid_name_still_raises(self, setup: dict[str, Any]) -> None:
         """Dry run still validates the name."""
@@ -984,8 +907,6 @@ class TestNukeDevboxDryRun:
             [_entry("mybox", status=DevboxStatus.READY, github_key_id="999")],
         )
 
-        mocker.patch("devbox.core.load_preset", return_value=MagicMock(github_account="testuser"))
-        mocker.patch("devbox.core.github.remove_ssh_key")
         mocker.patch("devbox.core.sshd.remove_user_from_ssh_group")
         mocker.patch("devbox.core.macos.delete_user")
         mocker.patch("devbox.core.iterm2.remove_profile")
@@ -997,7 +918,6 @@ class TestNukeDevboxDryRun:
         assert isinstance(actions, list)
         assert len(actions) > 0
         assert any("Would mark devbox" in a for a in actions)
-        assert any("Would remove GitHub SSH key" in a for a in actions)
         assert any("Would remove" in a and "SSH access group" in a for a in actions)
         assert any("Would delete macOS user" in a for a in actions)
         assert any("Would remove iTerm2 profile" in a for a in actions)
@@ -1005,13 +925,11 @@ class TestNukeDevboxDryRun:
 
     def test_no_side_effects(self, setup: dict[str, Any], mocker: MockerFixture) -> None:
         """Dry run must not call any side-effecting functions."""
-        mock_remove_key = mocker.patch("devbox.core.github.remove_ssh_key")
         mock_remove_ssh = mocker.patch("devbox.core.sshd.remove_user_from_ssh_group")
         mock_delete_user = mocker.patch("devbox.core.macos.delete_user")
         mock_remove_profile = mocker.patch("devbox.core.iterm2.remove_profile")
 
         nuke_devbox("mybox", registry_path=setup["registry_path"], dry_run=True)
-        mock_remove_key.assert_not_called()
         mock_remove_ssh.assert_not_called()
         mock_delete_user.assert_not_called()
         mock_remove_profile.assert_not_called()
@@ -1032,12 +950,3 @@ class TestNukeDevboxDryRun:
     def test_invalid_name_still_raises(self, setup: dict[str, Any]) -> None:
         with pytest.raises(ValueError, match="kebab-case"):
             nuke_devbox("Bad_Name", registry_path=setup["registry_path"], dry_run=True)
-
-    def test_without_github_key(self, setup: dict[str, Any]) -> None:
-        """Dry run omits GitHub key removal when no key is registered."""
-        _make_registry(
-            setup["registry_path"],
-            [_entry("mybox", status=DevboxStatus.READY, github_key_id=None)],
-        )
-        actions = nuke_devbox("mybox", registry_path=setup["registry_path"], dry_run=True)
-        assert not any("Would remove GitHub SSH key" in a for a in actions)

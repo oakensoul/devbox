@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import contextlib
+import os
 import subprocess
 
 from devbox.exceptions import MacOSUserError
@@ -68,7 +69,7 @@ def _run_dscl(args: list[str]) -> None:
             cmd,
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=60,
         )
     except FileNotFoundError:
         raise MacOSUserError("sudo or dscl not found") from None
@@ -78,14 +79,14 @@ def _run_dscl(args: list[str]) -> None:
         raise MacOSUserError(f"dscl failed (exit code {result.returncode}): {' '.join(args)}")
 
 
-def _run_cmd(cmd: list[str], error_msg: str) -> None:
+def _run_cmd(cmd: list[str], error_msg: str, timeout: int = 30) -> None:
     """Run a command via sudo, raising MacOSUserError on failure."""
     try:
         result = subprocess.run(
             ["sudo", *cmd],
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=timeout,
         )
     except FileNotFoundError:
         raise MacOSUserError(f"{error_msg}: command not found") from None
@@ -147,8 +148,28 @@ def create_user(name: str) -> str:
         _run_cmd(
             ["createhomedir", "-u", username],
             f"Failed to create home directory for {username}",
+            timeout=60,
         )
-        disable_password(name)
+        # createhomedir can silently succeed without creating the dir on some
+        # macOS versions — fall back to mkdir + chown if needed.
+        # Use UID directly (not username) to avoid directory service lookup
+        # delays immediately after user creation.
+        if not os.path.isdir(home_dir):
+            _run_cmd(
+                ["mkdir", "-p", home_dir],
+                f"Failed to create home directory {home_dir}",
+            )
+            _run_cmd(
+                ["chown", f"{uid}:20", home_dir],
+                f"Failed to set ownership on {home_dir}",
+            )
+        # Set a random password — keeps the account active for SSH key auth
+        # while preventing password login. The password is never stored or
+        # displayed. (pwpolicy -disableuser would disable the entire account
+        # including SSH.)
+        import secrets
+
+        _run_dscl(["-passwd", f"/Users/{username}", secrets.token_urlsafe(48)])
     except MacOSUserError:
         # Roll back partial user creation
         with contextlib.suppress(MacOSUserError):
@@ -193,4 +214,5 @@ def delete_user(name: str) -> None:
     _run_cmd(
         ["rm", "-rf", home_dir],
         f"Failed to remove home directory {home_dir}",
+        timeout=600,
     )

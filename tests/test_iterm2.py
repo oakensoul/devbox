@@ -38,7 +38,7 @@ class TestBuildProfile:
         assert p["Name"] == "devbox::dev1"
         assert p["Guid"] == "devbox-dev1"
         assert p["Badge Text"] == "dev1"
-        assert p["Command"] == "ssh dx-dev1@localhost"
+        assert p["Command"] == "ssh dx-dev1"
         assert p["Custom Command"] == "Yes"
 
     def test_color_preset_mapped(self) -> None:

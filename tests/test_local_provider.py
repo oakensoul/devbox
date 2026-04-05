@@ -60,8 +60,8 @@ class TestLocalProviderProvision:
         mocks["create_user"] = mocker.patch(
             "devbox.providers.local.macos.create_user", return_value="dx-test-box"
         )
-        mocks["generate_keypair"] = mocker.patch(
-            "devbox.providers.local.ssh.generate_keypair",
+        mocks["copy_keypair"] = mocker.patch(
+            "devbox.providers.local.ssh.copy_keypair",
             return_value="ssh-ed25519 AAAA fake-public-key",
         )
         mocks["populate_authorized_keys"] = mocker.patch(
@@ -127,9 +127,7 @@ class TestLocalProviderProvision:
             return _side_effect
 
         mocks["create_user"].side_effect = _make_side_effect("create_user", "dx-test-box")
-        mocks["generate_keypair"].side_effect = _make_side_effect(
-            "generate_keypair", "ssh-ed25519 AAAA"
-        )
+        mocks["copy_keypair"].side_effect = _make_side_effect("copy_keypair", "ssh-ed25519 AAAA")
         mocks["populate_authorized_keys"].side_effect = _make_side_effect(
             "populate_authorized_keys"
         )
@@ -142,14 +140,14 @@ class TestLocalProviderProvision:
 
         assert call_order == [
             "create_user",
-            "generate_keypair",
+            "copy_keypair",
             "populate_authorized_keys",
             "add_ssh_key",
             "ensure_ssh_access",
             "create_profile",
         ]
 
-    def test_generate_keypair_receives_home_dir(self, mocker: MockerFixture) -> None:
+    def test_copy_keypair_receives_home_dir(self, mocker: MockerFixture) -> None:
         mocks = self._mock_modules(mocker)
         provider = LocalProvider()
 
@@ -157,7 +155,7 @@ class TestLocalProviderProvision:
 
         from pathlib import Path
 
-        mocks["generate_keypair"].assert_called_once_with(Path("/Users/dx-test-box"))
+        mocks["copy_keypair"].assert_called_once_with(Path("/Users/dx-test-box"))
 
     def test_populate_authorized_keys_receives_user(self, mocker: MockerFixture) -> None:
         mocks = self._mock_modules(mocker)
@@ -238,7 +236,7 @@ class TestLocalProviderProvision:
 
         # Steps before the failure should have been called
         mocks["create_user"].assert_called_once()
-        mocks["generate_keypair"].assert_called_once()
+        mocks["copy_keypair"].assert_called_once()
         mocks["populate_authorized_keys"].assert_called_once()
         # Steps after the failure should NOT have been called
         mocks["ensure_ssh_access"].assert_not_called()

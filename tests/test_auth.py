@@ -13,7 +13,6 @@ from pytest_mock import MockerFixture
 
 from devbox.auth import (
     _validate_aws_values,
-    inject_anthropic_auth,
     inject_auth,
     inject_aws_auth,
 )
@@ -40,102 +39,6 @@ def _make_preset(
         aws_profile=aws_profile,
         github_account="octocat",
     )
-
-
-class TestInjectAnthropicAuth:
-    def test_appends_api_key_to_devbox_env(self, tmp_path: Path, mocker: MockerFixture) -> None:
-        env_file = tmp_path / ".devbox-env"
-        env_file.write_text("export FOO='bar'\n", encoding="utf-8")
-
-        mocker.patch("devbox.auth.get_secret", return_value="sk-ant-test-key")
-        mocker.patch("devbox.auth.chown_path")
-
-        preset = _make_preset(provider="local")
-        inject_anthropic_auth(tmp_path, preset, "dx-test")
-
-        content = env_file.read_text(encoding="utf-8")
-        assert "export FOO='bar'" in content
-        assert "export ANTHROPIC_API_KEY='sk-ant-test-key'" in content
-
-    def test_creates_devbox_env_if_missing(self, tmp_path: Path, mocker: MockerFixture) -> None:
-        mocker.patch("devbox.auth.get_secret", return_value="sk-ant-key")
-        mocker.patch("devbox.auth.chown_path")
-
-        preset = _make_preset(provider="local")
-        inject_anthropic_auth(tmp_path, preset, "dx-test")
-
-        env_file = tmp_path / ".devbox-env"
-        assert env_file.exists()
-        assert "ANTHROPIC_API_KEY" in env_file.read_text(encoding="utf-8")
-
-    def test_file_permissions_are_0600(self, tmp_path: Path, mocker: MockerFixture) -> None:
-        mocker.patch("devbox.auth.get_secret", return_value="sk-ant-key")
-        mocker.patch("devbox.auth.chown_path")
-
-        preset = _make_preset(provider="local")
-        inject_anthropic_auth(tmp_path, preset, "dx-test")
-
-        env_file = tmp_path / ".devbox-env"
-        mode = os.stat(env_file).st_mode & 0o777
-        assert mode == 0o600
-
-    def test_chowns_file_to_username(self, tmp_path: Path, mocker: MockerFixture) -> None:
-        mocker.patch("devbox.auth.get_secret", return_value="sk-ant-key")
-        mock_chown = mocker.patch("devbox.auth.chown_path")
-
-        preset = _make_preset(provider="local")
-        inject_anthropic_auth(tmp_path, preset, "dx-test")
-
-        mock_chown.assert_called_once_with(tmp_path / ".devbox-env", "dx-test")
-
-    def test_raises_auth_error_on_wrong_provider(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
-        preset = _make_preset(provider="aws", aws_profile="my-profile")
-        with pytest.raises(AuthError, match="requires provider 'local'"):
-            inject_anthropic_auth(tmp_path, preset, "dx-test")
-
-    def test_raises_auth_error_on_secret_failure(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
-        mocker.patch(
-            "devbox.auth.get_secret",
-            side_effect=Exception("vault locked"),
-        )
-        preset = _make_preset(provider="local")
-        with pytest.raises(AuthError, match="Failed to resolve Anthropic API key"):
-            inject_anthropic_auth(tmp_path, preset, "dx-test")
-
-    def test_escapes_single_quotes_in_key(self, tmp_path: Path, mocker: MockerFixture) -> None:
-        mocker.patch("devbox.auth.get_secret", return_value="key'with'quotes")
-        mocker.patch("devbox.auth.chown_path")
-
-        preset = _make_preset(provider="local")
-        inject_anthropic_auth(tmp_path, preset, "dx-test")
-
-        content = (tmp_path / ".devbox-env").read_text(encoding="utf-8")
-        assert "ANTHROPIC_API_KEY=" in content
-        # Verify it doesn't have unescaped single quotes
-        assert "'key'\"'\"'with'\"'\"'quotes'" in content
-
-    def test_calls_get_secret_with_correct_ref(self, tmp_path: Path, mocker: MockerFixture) -> None:
-        mock_get = mocker.patch("devbox.auth.get_secret", return_value="key")
-        mocker.patch("devbox.auth.chown_path")
-
-        preset = _make_preset(provider="local")
-        inject_anthropic_auth(tmp_path, preset, "dx-test")
-
-        mock_get.assert_called_once_with("op://Development/anthropic-api-key/credential")
-
-    def test_raises_auth_error_on_chown_failure(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
-        mocker.patch("devbox.auth.get_secret", return_value="sk-key")
-        mocker.patch("devbox.auth.chown_path", side_effect=AuthError("chown failed"))
-
-        preset = _make_preset(provider="local")
-        with pytest.raises(AuthError, match="chown failed"):
-            inject_anthropic_auth(tmp_path, preset, "dx-test")
 
 
 class TestInjectAwsAuth:
@@ -331,13 +234,9 @@ class TestValidateAwsValues:
 
 
 class TestInjectAuth:
-    def test_dispatches_to_anthropic_for_local(self, tmp_path: Path, mocker: MockerFixture) -> None:
-        mock_anthropic = mocker.patch("devbox.auth.inject_anthropic_auth")
-
+    def test_local_provider_is_noop(self, tmp_path: Path, mocker: MockerFixture) -> None:
         preset = _make_preset(provider="local")
-        inject_auth(tmp_path, preset, "dx-test")
-
-        mock_anthropic.assert_called_once_with(tmp_path, preset, "dx-test")
+        inject_auth(tmp_path, preset, "dx-test")  # should not raise
 
     def test_dispatches_to_aws_for_aws(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mock_aws = mocker.patch("devbox.auth.inject_aws_auth")
@@ -355,16 +254,6 @@ class TestInjectAuth:
         object.__setattr__(preset, "provider", "gcp")
 
         with pytest.raises(AuthError, match="Unknown provider"):
-            inject_auth(tmp_path, preset, "dx-test")
-
-    def test_propagates_anthropic_error(self, tmp_path: Path, mocker: MockerFixture) -> None:
-        mocker.patch(
-            "devbox.auth.inject_anthropic_auth",
-            side_effect=AuthError("boom"),
-        )
-
-        preset = _make_preset(provider="local")
-        with pytest.raises(AuthError, match="boom"):
             inject_auth(tmp_path, preset, "dx-test")
 
     def test_propagates_aws_error(self, tmp_path: Path, mocker: MockerFixture) -> None:

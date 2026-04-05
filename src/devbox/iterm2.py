@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from devbox.exceptions import ITermError
-from devbox.naming import DX_PREFIX, validate_name
+from devbox.naming import validate_name
 from devbox.presets import Preset
 
 PROFILES_DIR = Path.home() / "Library" / "Application Support" / "iTerm2" / "DynamicProfiles"
@@ -33,14 +33,13 @@ def _profile_path(name: str, profiles_dir: Path | None = None) -> Path:
 
 def _build_profile(name: str, preset: Preset) -> dict[str, Any]:
     """Build the iTerm2 dynamic profile dict."""
-    username = f"{DX_PREFIX}{name}"
     color_preset = _COLOR_PRESETS.get(preset.color_scheme, preset.color_scheme)
 
     profile: dict[str, object] = {
         "Name": f"devbox::{name}",
         "Guid": f"devbox-{name}",
         "Badge Text": name,
-        "Command": f"ssh {username}@localhost",
+        "Command": f"ssh dx-{name}",
         "Custom Command": "Yes",
         "Dynamic Profile Parent Name": "Default",
         "Semantic History": {

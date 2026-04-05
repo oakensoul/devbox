@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 Robert Gunnar Johnson Jr.
 
-"""Tests for bootstrap module — nvm, pyenv, brew extras, npm/pip globals."""
+"""Tests for bootstrap module — homebrew, nvm, pyenv, brew extras, npm/pip globals."""
 
 from __future__ import annotations
 
@@ -16,10 +16,13 @@ from devbox.bootstrap import (
     _run_checked,
     bootstrap_user,
     install_brew_extras,
+    install_claude_code,
+    install_homebrew,
     install_npm_globals,
     install_nvm,
     install_pip_globals,
     install_pyenv,
+    setup_gh_auth,
 )
 from devbox.exceptions import BootstrapError
 from devbox.presets import Preset
@@ -158,25 +161,57 @@ class TestInstallPyenv:
 # ---------------------------------------------------------------------------
 
 
+class TestInstallHomebrew:
+    def test_happy_path(self, mocker: MockerFixture) -> None:
+        mock_run = mocker.patch("devbox.bootstrap.subprocess.run", return_value=_ok())
+        install_homebrew(HOME, USERNAME)
+        assert mock_run.call_count == 2
+        # First call: git clone
+        clone_cmd = mock_run.call_args_list[0][0][0]
+        assert clone_cmd[:3] == ["sudo", "-u", USERNAME]
+        bash_arg = clone_cmd[-1]
+        assert "git clone" in bash_arg
+        assert ".homebrew" in bash_arg
+        # Second call: brew update
+        update_cmd = mock_run.call_args_list[1][0][0]
+        assert ".homebrew/bin/brew" in update_cmd[-1]
+        assert "update" in update_cmd[-1]
+
+    def test_clone_failure(self, mocker: MockerFixture) -> None:
+        mocker.patch("devbox.bootstrap.subprocess.run", return_value=_fail())
+        with pytest.raises(BootstrapError, match="homebrew install"):
+            install_homebrew(HOME, USERNAME)
+
+    def test_update_failure(self, mocker: MockerFixture) -> None:
+        mocker.patch(
+            "devbox.bootstrap.subprocess.run",
+            side_effect=[_ok(), _fail(stderr="update failed")],
+        )
+        with pytest.raises(BootstrapError, match="homebrew update"):
+            install_homebrew(HOME, USERNAME)
+
+
 class TestInstallBrewExtras:
     def test_happy_path(self, mocker: MockerFixture) -> None:
         mock_run = mocker.patch("devbox.bootstrap.subprocess.run", return_value=_ok())
-        install_brew_extras(["jq", "ripgrep"])
+        install_brew_extras(HOME, ["jq", "ripgrep"], USERNAME)
         mock_run.assert_called_once()
         cmd = mock_run.call_args[0][0]
-        assert cmd[:2] == ["brew", "install"]
-        assert "jq" in cmd
-        assert "ripgrep" in cmd
+        assert cmd[:3] == ["sudo", "-u", USERNAME]
+        bash_arg = cmd[-1]
+        assert ".homebrew/bin/brew" in bash_arg
+        assert "jq" in bash_arg
+        assert "ripgrep" in bash_arg
 
     def test_empty_list_is_noop(self, mocker: MockerFixture) -> None:
         mock_run = mocker.patch("devbox.bootstrap.subprocess.run")
-        install_brew_extras([])
+        install_brew_extras(HOME, [], USERNAME)
         mock_run.assert_not_called()
 
     def test_failure(self, mocker: MockerFixture) -> None:
         mocker.patch("devbox.bootstrap.subprocess.run", return_value=_fail())
-        with pytest.raises(BootstrapError, match="brew install"):
-            install_brew_extras(["bad-pkg"])
+        with pytest.raises(BootstrapError, match="brew extras"):
+            install_brew_extras(HOME, ["bad-pkg"], USERNAME)
 
 
 # ---------------------------------------------------------------------------
@@ -228,6 +263,48 @@ class TestInstallPipGlobals:
 
 
 # ---------------------------------------------------------------------------
+# install_claude_code
+# ---------------------------------------------------------------------------
+
+
+class TestInstallClaudeCode:
+    def test_happy_path(self, mocker: MockerFixture) -> None:
+        mock_run = mocker.patch("devbox.bootstrap.subprocess.run", return_value=_ok())
+        install_claude_code(HOME, USERNAME)
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        assert cmd[:3] == ["sudo", "-u", USERNAME]
+        bash_script = cmd[-1]
+        assert "claude.ai/install.sh" in bash_script
+
+    def test_failure(self, mocker: MockerFixture) -> None:
+        mocker.patch("devbox.bootstrap.subprocess.run", return_value=_fail())
+        with pytest.raises(BootstrapError, match="claude code"):
+            install_claude_code(HOME, USERNAME)
+
+
+# ---------------------------------------------------------------------------
+# setup_gh_auth
+# ---------------------------------------------------------------------------
+
+
+class TestSetupGhAuth:
+    def test_happy_path(self, mocker: MockerFixture) -> None:
+        mock_run = mocker.patch("devbox.bootstrap.subprocess.run", return_value=_ok())
+        setup_gh_auth(HOME, USERNAME)
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        assert cmd[:3] == ["sudo", "-u", USERNAME]
+        bash_script = cmd[-1]
+        assert "gh config set git_protocol ssh" in bash_script
+
+    def test_failure(self, mocker: MockerFixture) -> None:
+        mocker.patch("devbox.bootstrap.subprocess.run", return_value=_fail())
+        with pytest.raises(BootstrapError, match="gh config"):
+            setup_gh_auth(HOME, USERNAME)
+
+
+# ---------------------------------------------------------------------------
 # bootstrap_user
 # ---------------------------------------------------------------------------
 
@@ -239,9 +316,20 @@ class TestBootstrapUser:
         warnings = bootstrap_user(HOME, preset, USERNAME)
         assert warnings == []
 
+    def test_homebrew_failure_continues(self, mocker: MockerFixture) -> None:
+        """homebrew failure should warn but not block nvm/pyenv/brew/npm/pip/claude/gh."""
+        # homebrew fails(1), nvm(2) + pyenv(2) + claude(1) + gh(1) = 7
+        effects = [_fail(), _ok(), _ok(), _ok(), _ok(), _ok(), _ok()]
+        mocker.patch("devbox.bootstrap.subprocess.run", side_effect=effects)
+        preset = _preset()
+        warnings = bootstrap_user(HOME, preset, USERNAME)
+        assert len(warnings) == 1
+        assert "homebrew" in warnings[0].lower()
+
     def test_nvm_failure_continues(self, mocker: MockerFixture) -> None:
-        """nvm failure should warn but not block pyenv/brew/npm/pip."""
-        effects = [_fail(), _ok(), _ok(), _ok()]  # nvm fails on first call
+        """nvm failure should warn but not block pyenv/brew/npm/pip/claude/gh."""
+        # homebrew(2) + nvm fails(1) + pyenv(2) + claude(1) + gh(1) = 8
+        effects = [_ok(), _ok(), _fail(), _ok(), _ok(), _ok(), _ok(), _ok()]
         mocker.patch("devbox.bootstrap.subprocess.run", side_effect=effects)
         preset = _preset()
         warnings = bootstrap_user(HOME, preset, USERNAME)
@@ -249,8 +337,8 @@ class TestBootstrapUser:
         assert "nvm" in warnings[0].lower()
 
     def test_pyenv_failure_continues(self, mocker: MockerFixture) -> None:
-        # nvm succeeds (2 calls), pyenv fails on first call
-        effects = [_ok(), _ok(), _fail(), _ok()]
+        # homebrew(2) + nvm(2) + pyenv fails(1) + claude(1) + gh(1) = 8
+        effects = [_ok(), _ok(), _ok(), _ok(), _fail(), _ok(), _ok(), _ok()]
         mocker.patch("devbox.bootstrap.subprocess.run", side_effect=effects)
         preset = _preset()
         warnings = bootstrap_user(HOME, preset, USERNAME)
@@ -258,8 +346,8 @@ class TestBootstrapUser:
         assert "pyenv" in warnings[0].lower()
 
     def test_brew_failure_continues(self, mocker: MockerFixture) -> None:
-        # nvm(2) + pyenv(2) succeed, brew fails
-        effects = [_ok(), _ok(), _ok(), _ok(), _fail()]
+        # homebrew(2) + nvm(2) + pyenv(2) + brew fails(1) + claude(1) + gh(1) = 9
+        effects = [_ok(), _ok(), _ok(), _ok(), _ok(), _ok(), _fail(), _ok(), _ok()]
         mocker.patch("devbox.bootstrap.subprocess.run", side_effect=effects)
         preset = _preset(brew_extras=["jq"])
         warnings = bootstrap_user(HOME, preset, USERNAME)
@@ -270,20 +358,20 @@ class TestBootstrapUser:
         mocker.patch("devbox.bootstrap.subprocess.run", return_value=_fail())
         preset = _preset(brew_extras=["jq"], npm_globals=["ts"], pip_globals=["black"])
         warnings = bootstrap_user(HOME, preset, USERNAME)
-        assert len(warnings) == 5
+        assert len(warnings) == 8
 
     def test_empty_optional_lists_skip(self, mocker: MockerFixture) -> None:
-        """With empty brew/npm/pip lists, only nvm + pyenv are called."""
+        """With empty brew/npm/pip lists, homebrew + nvm + pyenv + claude + gh are called."""
         mock_run = mocker.patch("devbox.bootstrap.subprocess.run", return_value=_ok())
         preset = _preset()
         warnings = bootstrap_user(HOME, preset, USERNAME)
         assert warnings == []
-        # nvm = 2 calls, pyenv = 2 calls, brew/npm/pip = 0
-        assert mock_run.call_count == 4
+        # homebrew = 2, nvm = 2, pyenv = 2, brew/npm/pip = 0, claude = 1, gh = 1
+        assert mock_run.call_count == 8
 
     def test_npm_failure_still_runs_pip(self, mocker: MockerFixture) -> None:
-        # nvm(2) + pyenv(2) + brew(0) + npm(1 fail) + pip(1 ok)
-        effects = [_ok(), _ok(), _ok(), _ok(), _fail(), _ok()]
+        # homebrew(2) + nvm(2) + pyenv(2) + npm(1 fail) + pip(1 ok) + claude(1) + gh(1) = 10
+        effects = [_ok(), _ok(), _ok(), _ok(), _ok(), _ok(), _fail(), _ok(), _ok(), _ok()]
         mocker.patch("devbox.bootstrap.subprocess.run", side_effect=effects)
         preset = _preset(npm_globals=["ts"], pip_globals=["black"])
         warnings = bootstrap_user(HOME, preset, USERNAME)
@@ -291,8 +379,8 @@ class TestBootstrapUser:
         assert "npm" in warnings[0].lower()
 
     def test_pip_failure_is_last_warning(self, mocker: MockerFixture) -> None:
-        # nvm(2) + pyenv(2) + brew(0) + npm(0) + pip(1 fail)
-        effects = [_ok(), _ok(), _ok(), _ok(), _fail()]
+        # homebrew(2) + nvm(2) + pyenv(2) + pip(1 fail) + claude(1) + gh(1) = 9
+        effects = [_ok(), _ok(), _ok(), _ok(), _ok(), _ok(), _fail(), _ok(), _ok()]
         mocker.patch("devbox.bootstrap.subprocess.run", side_effect=effects)
         preset = _preset(pip_globals=["bad"])
         warnings = bootstrap_user(HOME, preset, USERNAME)

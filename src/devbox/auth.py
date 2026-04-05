@@ -18,8 +18,6 @@ from devbox.utils import shell_escape
 
 logger = logging.getLogger(__name__)
 
-_ANTHROPIC_OP_REF = "op://Development/anthropic-api-key/credential"
-
 _ENV_KEY_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 _AWS_REGION_RE = re.compile(r"^[a-z]{2}-[a-z]+-\d+$")
@@ -52,32 +50,6 @@ def _write_env_export(env_path: Path, key: str, value: str) -> None:
     fd = os.open(str(env_path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     with os.fdopen(fd, "a", encoding="utf-8") as fh:
         fh.write(line)
-
-
-def inject_anthropic_auth(home_dir: Path, preset: Preset, username: str) -> None:
-    """Resolve the Anthropic API key from 1Password and append to .devbox-env.
-
-    Only applies when ``preset.provider == "local"``.
-    Raises :exc:`AuthError` on failure.
-    """
-    if preset.provider != "local":
-        msg = f"inject_anthropic_auth requires provider 'local', got {preset.provider!r}"
-        raise AuthError(msg)
-
-    try:
-        api_key = get_secret(_ANTHROPIC_OP_REF)
-    except Exception as exc:
-        raise AuthError(f"Failed to resolve Anthropic API key: {exc}") from exc
-
-    env_path = home_dir / ".devbox-env"
-
-    try:
-        _write_env_export(env_path, "ANTHROPIC_API_KEY", api_key)
-        chown_path(env_path, username)
-    except AuthError:
-        raise
-    except Exception as exc:
-        raise AuthError(f"Failed to write Anthropic auth to .devbox-env: {exc}") from exc
 
 
 def inject_aws_auth(home_dir: Path, preset: Preset, username: str) -> None:
@@ -145,13 +117,13 @@ def inject_aws_auth(home_dir: Path, preset: Preset, username: str) -> None:
 def inject_auth(home_dir: Path, preset: Preset, username: str) -> None:
     """Dispatch auth injection based on preset provider.
 
-    - ``"local"``: injects Anthropic API key
+    - ``"local"``: no-op (user runs ``claude /login`` after first SSH)
     - ``"aws"``: injects AWS credentials
 
     Raises :exc:`AuthError` on failure.
     """
     if preset.provider == "local":
-        inject_anthropic_auth(home_dir, preset, username)
+        return  # Claude Code auth handled via `claude /login` over SSH
     elif preset.provider == "aws":
         inject_aws_auth(home_dir, preset, username)
     else:

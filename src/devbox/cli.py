@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 
 import click
@@ -33,10 +34,12 @@ def cli() -> None:
 
 @cli.command()
 @click.argument("name")
-@click.option("--preset", required=True, help="Preset name to use for provisioning.")
+@click.option("--preset", default=None, help="Preset name (defaults to the devbox name).")
 @click.option("--dry-run", is_flag=True, default=False, help="Preview actions without executing.")
-def create(name: str, preset: str, dry_run: bool) -> None:
+def create(name: str, preset: str | None, dry_run: bool) -> None:
     """Create a new devbox."""
+    if preset is None:
+        preset = name
     try:
         if dry_run:
             result = create_devbox(name, preset, dry_run=True)
@@ -44,11 +47,23 @@ def create(name: str, preset: str, dry_run: bool) -> None:
             for action in result.get("actions", []):
                 console.print(f"  [cyan]•[/cyan] {action}")
         else:
-            with console.status(f"[bold]Creating devbox {name!r} from preset {preset!r}..."):
-                result = create_devbox(name, preset)
+            # Preflight runs outside the spinner so sudo can prompt if needed
+            console.print(f"[bold]Preparing devbox {name!r} from preset {preset!r}...[/bold]")
+            from devbox.core import preflight_devbox
+
+            preflight_devbox(name, preset)
+            status = console.status(f"[bold]Creating devbox {name!r}...[/bold]")
+            status.start()
+
+            def _on_step(msg: str) -> None:
+                status.update(f"[bold]{msg}[/bold]")
+
+            try:
+                result = create_devbox(name, preset, on_step=_on_step)
+            finally:
+                status.stop()
             console.print(f"[green]✓[/green] Devbox [bold]{name}[/bold] created successfully")
-            console.print(f"  Connect: [cyan]ssh dx-{name}@localhost[/cyan]")
-            console.print(f"  Status:  {result.get('status', 'ready')}")
+            console.print(f"  Connect: [cyan]ssh dx-{name}[/cyan]")
     except (DevboxError, ValueError) as exc:
         console.print(f"[red]✗[/red] {exc}")
         sys.exit(1)
@@ -62,7 +77,7 @@ def rebuild(name: str) -> None:
         with console.status(f"[bold]Rebuilding devbox {name!r}..."):
             rebuild_devbox(name)
         console.print(f"[green]✓[/green] Devbox [bold]{name}[/bold] rebuilt successfully")
-        console.print(f"  Connect: [cyan]ssh dx-{name}@localhost[/cyan]")
+        console.print(f"  Connect: [cyan]ssh dx-{name}[/cyan]")
     except (DevboxError, ValueError) as exc:
         console.print(f"[red]✗[/red] {exc}")
         sys.exit(1)
@@ -80,6 +95,11 @@ def nuke(name: str, dry_run: bool) -> None:
             for action in actions:
                 console.print(f"  [cyan]•[/cyan] {action}")
         else:
+            # Warm up sudo outside the spinner so the password prompt is visible
+            result = subprocess.run(["sudo", "-v"], timeout=60)  # noqa: S607
+            if result.returncode != 0:
+                console.print("[red]✗[/red] sudo authentication failed")
+                sys.exit(1)
             with console.status(f"[bold]Nuking devbox {name!r}..."):
                 errors = nuke_devbox(name)
             if errors:

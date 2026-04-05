@@ -16,7 +16,7 @@ import pytest
 
 from devbox.iterm2 import create_profile, remove_profile
 from devbox.presets import Preset
-from devbox.ssh import generate_keypair
+from devbox.ssh import copy_keypair
 
 pytestmark = [
     pytest.mark.integration,
@@ -84,9 +84,9 @@ class TestSSHKeypair:
         """Provide a temporary home directory for keypair generation."""
         return tmp_path / "dx-sshtest"
 
-    def test_generate_keypair_creates_files(self, home_dir: Path) -> None:
+    def test_copy_keypair_creates_files(self, home_dir: Path) -> None:
         home_dir.mkdir(parents=True)
-        pub_key = generate_keypair(home_dir)
+        pub_key = copy_keypair(home_dir)
 
         ssh_dir = home_dir / ".ssh"
         private_key = ssh_dir / "id_ed25519"

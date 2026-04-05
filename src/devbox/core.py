@@ -6,15 +6,18 @@
 from __future__ import annotations
 
 import contextlib
+import getpass
 import logging
 import os
+import re
+import subprocess
 from collections.abc import Callable
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
 from typing import Any
 
-from devbox import github, iterm2, macos, onepassword, ssh, sshd
+from devbox import iterm2, macos, onepassword, ssh, sshd, sudoers
 from devbox.auth import inject_auth
 from devbox.bootstrap import bootstrap_user
 from devbox.exceptions import DevboxError
@@ -82,16 +85,46 @@ class _CompensationStack:
         return errors
 
 
+def preflight_devbox(
+    name: str,
+    preset: str,
+    registry_path: Path | None = None,
+    presets_dir: Path | None = None,
+) -> None:
+    """Run preflight checks and warm up sudo before create.
+
+    Called outside the spinner so interactive prompts (sudo password) are visible.
+    Raises :exc:`DevboxError` on failure.
+    """
+    validate_name(name)
+    load_preset(preset, presets_dir)
+
+    existing = find_entry(name, registry_path)
+    if existing is not None:
+        raise DevboxError(f"Devbox {name!r} already exists (status: {existing.status})")
+
+    if not sshd.is_remote_login_enabled():
+        raise DevboxError(
+            "Remote Login (sshd) is not enabled. "
+            "Enable it in System Settings → General → Sharing → Remote Login"
+        )
+
+    result = subprocess.run(["sudo", "-v"], timeout=60)  # noqa: S607
+    if result.returncode != 0:
+        raise DevboxError("sudo authentication failed")
+
+
 def create_devbox(
     name: str,
     preset: str,
     registry_path: Path | None = None,
     presets_dir: Path | None = None,
     dry_run: bool = False,
+    on_step: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     """Create a new devbox from the given preset.
 
-    Orchestrates: validation → macOS user → SSH keys → GitHub key →
+    Orchestrates: validation → macOS user → SSH keys →
     env file → sshd access → iTerm2 profile → registry entry.
 
     On failure at any step, the compensation stack rolls back all
@@ -105,26 +138,18 @@ def create_devbox(
     validate_name(name)
     preset_obj = load_preset(preset, presets_dir)
 
-    # Check for existing devbox
-    existing = find_entry(name, registry_path)
-    if existing is not None:
-        raise DevboxError(f"Devbox {name!r} already exists (status: {existing.status})")
-
     if dry_run:
         username = f"{DX_PREFIX}{name}"
         actions: list[str] = [
             f"Would create registry entry for {name!r}",
             f"Would create macOS user {username}",
-            f"Would generate SSH keypair at /Users/{username}/.ssh/",
+            f"Would copy SSH key {preset_obj.ssh_key!r} to /Users/{username}/.ssh/",
             "Would populate authorized_keys from parent GitHub account",
-            f"Would register SSH key with GitHub account {preset_obj.github_account}",
             f"Would resolve {len(preset_obj.env_vars)} environment variables",
-            "Would inject Claude Code auth credentials",
-            "Would bootstrap development tools (nvm, pyenv, brew extras)",
+            "Would install per-devbox Homebrew and bootstrap tools (nvm, pyenv, brew extras)",
             "Would write .zshrc with heartbeat hook",
             f"Would ensure SSH access for {username}",
             f"Would create iTerm2 profile devbox::{name}",
-            "Would disable password authentication",
         ]
         for action in actions:
             logger.info(action)
@@ -135,71 +160,113 @@ def create_devbox(
             "actions": actions,
         }
 
+    def step(msg: str) -> None:
+        if on_step is not None:
+            on_step(msg)
+        logger.info(msg)
+
     compensation = _CompensationStack()
     today = datetime.now(UTC).strftime("%Y-%m-%d")
 
-    # Step 1: Create registry entry with "creating" status
+    step("Creating registry entry")
     entry = RegistryEntry(name=name, preset=preset, created=today)
     add_entry(entry, registry_path)
     compensation.push("remove registry entry", partial(_safe_remove_entry, name, registry_path))
 
     try:
-        # Step 2: Create macOS user
+        step("Creating macOS user")
         username = macos.create_user(name)
         compensation.push(f"delete macOS user {username}", partial(macos.delete_user, name))
 
+        step("Configuring sudoers for devbox user")
+        sudoers.add_user(username)
+        compensation.push(
+            f"remove sudoers rule for {username}",
+            partial(sudoers.remove_user, username),
+        )
+
         home_dir = Path(f"/Users/{username}")
 
-        # Step 3: Generate SSH keypair
-        public_key = ssh.generate_keypair(home_dir)
-        # No separate undo needed — home dir deletion covers this
-
-        # Step 4: Populate authorized_keys from parent's GitHub
-        ssh.populate_authorized_keys(home_dir, target_user=username)
-
-        # Step 5: Register SSH key with GitHub
-        key_title = f"devbox:{name}"
-        github_key_id = github.add_ssh_key(key_title, public_key, preset_obj.github_account)
-        compensation.push(
-            "remove GitHub SSH key",
-            partial(github.remove_ssh_key, github_key_id, preset_obj.github_account),
-        )
-        update_entry(name, registry_path, github_key_id=github_key_id)
-
-        # Step 6: Resolve and write env vars
-        if preset_obj.env_vars:
-            resolved = onepassword.resolve_env_vars(preset_obj.env_vars)
-            write_env_file(home_dir, resolved, target_user=username)
-
-        # Step 7: Inject Claude Code auth
+        # Temporarily take ownership of the home dir itself (not recursive —
+        # the dir is freshly created and nearly empty) so Python file ops
+        # can create subdirectories. The finally block restores ownership
+        # of only the specific paths we write, leaving ~/Developer untouched.
+        calling_user = getpass.getuser()
+        _sudo_chown(home_dir, calling_user, recursive=False)
         try:
-            inject_auth(home_dir, preset_obj, username)
-        except DevboxError as exc:
-            logger.warning("Auth injection failed (non-fatal): %s", exc)
+            step("Copying SSH keypair")
+            ssh.copy_keypair(home_dir, preset_obj.ssh_key)
 
-        # Step 8: Bootstrap user (nvm, pyenv, brew extras, pip/npm globals)
+            step("Populating authorized_keys from GitHub")
+            ssh.populate_authorized_keys(home_dir, target_user=username)
+
+            step("Resolving environment variables")
+            if preset_obj.env_vars:
+                resolved = onepassword.resolve_env_vars(preset_obj.env_vars)
+                write_env_file(home_dir, resolved, target_user=username)
+
+            step("Injecting auth credentials")
+            try:
+                inject_auth(home_dir, preset_obj, username)
+            except DevboxError as exc:
+                logger.warning("Auth injection failed (non-fatal): %s", exc)
+
+            step("Writing .zshrc")
+            try:
+                write_zshrc(home_dir, name, username)
+            except DevboxError as exc:
+                logger.warning("zshrc write failed (non-fatal): %s", exc)
+        finally:
+            # Restore ownership on the home dir and only the paths we wrote.
+            # Never chown -R the home dir — ~/Developer may contain large repos.
+            _sudo_chown(home_dir, username, recursive=False)
+            for subpath in [".ssh", ".aws", ".devbox-env", ".zshenv", ".zshrc.local", ".homebrew"]:
+                p = home_dir / subpath
+                if p.exists():
+                    _sudo_chown(p, username)
+
+        step("Bootstrapping dev tools (this may take several minutes)")
         warnings = bootstrap_user(home_dir, preset_obj, username)
         for w in warnings:
             logger.warning("Bootstrap: %s", w)
 
-        # Step 9: Write .zshrc (heartbeat hook + env sourcing)
-        try:
-            write_zshrc(home_dir, name, username)
-        except DevboxError as exc:
-            logger.warning("zshrc write failed (non-fatal): %s", exc)
-
-        # Step 10: Ensure SSH access
+        step("Configuring SSH access")
         sshd.ensure_ssh_access(username)
         compensation.push(
             f"remove {username} from SSH group",
             partial(sshd.remove_user_from_ssh_group, username),
         )
 
-        # Step 11: Create iTerm2 profile
+        step("Creating iTerm2 profile")
         iterm2.create_profile(name, preset_obj)
         compensation.push("remove iTerm2 profile", partial(iterm2.remove_profile, name))
 
-        # Step 12: Mark ready
+        step("Adding SSH config entry")
+        ssh.add_ssh_config_entry(name, preset_obj.ssh_key)
+        compensation.push("remove SSH config entry", partial(ssh.remove_ssh_config_entry, name))
+
+        # Run loadout via SSH now that the devbox is accessible
+        if preset_obj.loadout_orgs:
+            step("Running loadout (this may take several minutes)")
+            try:
+                from devbox.bootstrap import run_loadout
+
+                run_loadout(home_dir, preset_obj, username)
+            except Exception as exc:
+                logger.warning("Loadout failed (non-fatal): %s", exc)
+
+        # Clone repos after SSH access and loadout — needs sshd open and
+        # dotfiles installed so the GitHub SSH key is configured correctly.
+        if preset_obj.repos:
+            step("Cloning repos")
+            try:
+                from devbox.bootstrap import clone_repos
+
+                clone_repos(home_dir, preset_obj, username)
+            except Exception as exc:
+                logger.warning("Repo cloning failed (non-fatal): %s", exc)
+
+        step("Finalizing")
         update_entry(name, registry_path, status=DevboxStatus.READY)
 
     except Exception:
@@ -267,8 +334,8 @@ def nuke_devbox(
 ) -> list[str]:
     """Destroy a devbox and clean up all resources.
 
-    Steps: mark nuking → remove GitHub key → remove SSH group →
-    delete macOS user → remove iTerm2 profile → remove registry entry.
+    Steps: mark nuking → remove SSH group → delete macOS user →
+    remove iTerm2 profile → remove registry entry.
 
     Returns a list of non-fatal cleanup errors (empty on full success).
     If critical cleanup steps fail, the registry entry is kept in 'nuking'
@@ -286,17 +353,11 @@ def nuke_devbox(
         username = f"{DX_PREFIX}{name}"
         actions: list[str] = [
             f"Would mark devbox {name!r} as nuking",
+            f"Would remove {username} from SSH access group",
+            f"Would delete macOS user {username} and home directory",
+            f"Would remove iTerm2 profile devbox::{name}",
+            f"Would remove registry entry for {name!r}",
         ]
-        if entry.github_key_id:
-            actions.append(f"Would remove GitHub SSH key {entry.github_key_id}")
-        actions.extend(
-            [
-                f"Would remove {username} from SSH access group",
-                f"Would delete macOS user {username} and home directory",
-                f"Would remove iTerm2 profile devbox::{name}",
-                f"Would remove registry entry for {name!r}",
-            ]
-        )
         for action in actions:
             logger.info(action)
         return actions
@@ -307,17 +368,15 @@ def nuke_devbox(
     errors: list[str] = []
     critical_failure = False
 
-    # Remove GitHub SSH key
-    if entry.github_key_id:
-        try:
-            preset_obj = load_preset(entry.preset)
-            github.remove_ssh_key(entry.github_key_id, preset_obj.github_account)
-        except Exception as exc:
-            errors.append(f"GitHub key removal: {exc}")
-            logger.warning("Failed to remove GitHub key: %s", exc)
+    # Remove sudoers rule for this devbox user
+    username = f"{DX_PREFIX}{name}"
+    try:
+        sudoers.remove_user(username)
+    except Exception as exc:
+        errors.append(f"Sudoers removal: {exc}")
+        logger.warning("Failed to remove sudoers rule: %s", exc)
 
     # Remove from SSH access group
-    username = f"{DX_PREFIX}{name}"
     try:
         sshd.remove_user_from_ssh_group(username)
     except Exception as exc:
@@ -338,6 +397,13 @@ def nuke_devbox(
     except Exception as exc:
         errors.append(f"iTerm2 profile removal: {exc}")
         logger.warning("Failed to remove iTerm2 profile: %s", exc)
+
+    # Remove SSH config entry
+    try:
+        ssh.remove_ssh_config_entry(name)
+    except Exception as exc:
+        errors.append(f"SSH config removal: {exc}")
+        logger.warning("Failed to remove SSH config entry: %s", exc)
 
     # Only remove registry entry if no critical failures occurred.
     # If the macOS user couldn't be deleted, keep the entry in 'nuking'
@@ -381,6 +447,30 @@ def rebuild_devbox(
         )
 
     return create_devbox(name, preset_name, registry_path, presets_dir)
+
+
+_SAFE_USERNAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+
+def _sudo_chown(path: Path, user: str, *, recursive: bool = True) -> None:
+    """Chown *path* to *user*:staff via sudo.
+
+    Pass ``recursive=False`` to chown only the path itself, not its contents.
+    """
+    if not _SAFE_USERNAME_RE.match(user) or len(user) > 64:
+        raise DevboxError(f"Invalid username for chown: {user!r}")
+    cmd = ["sudo", "chown"]
+    if recursive:
+        cmd.append("-R")
+    cmd.extend([f"{user}:staff", str(path)])
+    result = subprocess.run(  # noqa: S603
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        raise DevboxError(f"Failed to chown {path} to {user}: {result.stderr.strip()}")
 
 
 def _safe_remove_entry(name: str, registry_path: Path | None) -> None:
