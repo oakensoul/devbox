@@ -109,7 +109,7 @@ def preflight_devbox(
             "Enable it in System Settings → General → Sharing → Remote Login"
         )
 
-    result = subprocess.run(["sudo", "-v"], timeout=60)
+    result = subprocess.run(["sudo", "-v"], timeout=60)  # noqa: S607
     if result.returncode != 0:
         raise DevboxError("sudo authentication failed")
 
@@ -461,7 +461,7 @@ def _sudo_chown(path: Path, user: str, *, recursive: bool = True) -> None:
     if recursive:
         cmd.append("-R")
     cmd.extend([f"{user}:staff", str(path)])
-    result = subprocess.run(
+    result = subprocess.run(  # noqa: S603
         cmd,
         capture_output=True,
         text=True,

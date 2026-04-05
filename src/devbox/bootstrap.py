@@ -48,10 +48,9 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
     import shutil
     loadout_bin = shutil.which("loadout")
     if not loadout_bin:
-        raise BootstrapError("loadout CLI not found — install it or remove loadout_orgs from preset")
-
-    orgs_args = " ".join(f"--orgs={shlex.quote(org)}" for org in preset.loadout_orgs)
-    user_arg = f"--user={shlex.quote(preset.github_account)}"
+        raise BootstrapError(
+            "loadout CLI not found — install it or remove loadout_orgs from preset"
+        )
 
     ssh_base = [
         "ssh",
@@ -61,10 +60,14 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
     ]
 
     # Clone dotfiles repos via SSH (private repos need SSH auth).
+    acct = preset.github_account
     for repo in ["dotfiles", "dotfiles-private"]:
+        clone_cmd = (
+            f"test -d ~/.{repo} || "
+            f"git clone git@github.com:{acct}/{repo}.git ~/.{repo}"
+        )
         _run_checked(
-            [*ssh_base,
-             f"test -d ~/.{repo} || git clone git@github.com:{preset.github_account}/{repo}.git ~/.{repo}"],
+            [*ssh_base, clone_cmd],
             error_prefix=f"clone {repo}",
             timeout=120,
         )
@@ -77,7 +80,8 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
     )
     _run_checked(
         [*ssh_base,
-         f"mkdir -p ~/.dotfiles && cat > ~/.dotfiles/.loadout.toml << 'LOADOUT_EOF'\n{config_content}LOADOUT_EOF"],
+         "mkdir -p ~/.dotfiles && cat > ~/.dotfiles/.loadout.toml "
+         f"<< 'LOADOUT_EOF'\n{config_content}LOADOUT_EOF"],
         error_prefix="write loadout config",
         timeout=10,
     )
@@ -118,11 +122,13 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
     # (configured via .zshenv) — running the host's brew hangs or pollutes
     # fpath with files owned by the wrong UID.  Wrap the block in a guard so
     # the per-devbox HOMEBREW_PREFIX set in .zshenv takes precedence.
+    sed_pattern = (
+        "s|^if \\\\[\\\\[ -d /opt/homebrew \\\\]\\\\];|"
+        'if [[ -z "$HOMEBREW_PREFIX" ]] \\&\\& '
+        "[[ -d /opt/homebrew ]];|"
+    )
     _run_checked(
-        [*ssh_base,
-         "sed -i '' '"
-         "s|^if \\[\\[ -d /opt/homebrew \\]\\];|if [[ -z \"$HOMEBREW_PREFIX\" ]] \\&\\& [[ -d /opt/homebrew ]];|"
-         "' ~/.zshrc"],
+        [*ssh_base, f"sed -i '' '{sed_pattern}' ~/.zshrc"],
         error_prefix="patch .zshrc brew guard",
         timeout=10,
     )
@@ -438,7 +444,9 @@ def clone_repos(home_dir: Path, preset: Preset, username: str) -> None:
         dest = f"~/Developer/{shlex.quote(repo_name)}"
         try:
             _run_checked(
-                [*ssh_base, f"test -d {dest} || git clone git@github.com:{shlex.quote(repo)}.git {dest}"],
+                [*ssh_base,
+                 f"test -d {dest} || git clone "
+                 f"git@github.com:{shlex.quote(repo)}.git {dest}"],
                 error_prefix=f"clone {repo}",
                 timeout=120,
             )
@@ -457,7 +465,9 @@ def clone_repos(home_dir: Path, preset: Preset, username: str) -> None:
             dest = f"~/Developer/{shlex.quote(repo_name)}"
             try:
                 _run_checked(
-                    [*ssh_base, f"test -d {dest} || git clone git@github.com:{shlex.quote(repo)}.git {dest}"],
+                    [*ssh_base,
+                     f"test -d {dest} || git clone "
+                     f"git@github.com:{shlex.quote(repo)}.git {dest}"],
                     error_prefix=f"clone {repo}",
                     timeout=120,
                 )

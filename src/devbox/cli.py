@@ -94,7 +94,7 @@ def nuke(name: str, dry_run: bool) -> None:
                 console.print(f"  [cyan]•[/cyan] {action}")
         else:
             # Warm up sudo outside the spinner so the password prompt is visible
-            result = subprocess.run(["sudo", "-v"], timeout=60)
+            result = subprocess.run(["sudo", "-v"], timeout=60)  # noqa: S607
             if result.returncode != 0:
                 console.print("[red]✗[/red] sudo authentication failed")
                 sys.exit(1)

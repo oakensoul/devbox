@@ -13,8 +13,8 @@ from pytest_mock import MockerFixture
 from devbox.zshrc import (
     ENV_SOURCE_LINE,
     HEARTBEAT_HOOK,
-    LOGIN_NOTICE,
     LOADOUT_NOTICE,
+    LOGIN_NOTICE,
     generate_zshrc,
     is_hook_installed,
     write_zshrc,

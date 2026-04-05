@@ -23,7 +23,7 @@ LOGIN_NOTICE = ""
 LOADOUT_NOTICE = LOGIN_NOTICE  # backward-compat alias
 
 
-def generate_zshrc_local(name: str) -> str:  # noqa: D103 — primary name
+def generate_zshrc_local(name: str) -> str:
     """Return .zshrc.local content for a devbox user.
 
     Includes the environment source line, heartbeat hook, and dotfiles

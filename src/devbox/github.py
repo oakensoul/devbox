@@ -17,7 +17,7 @@ def _run_gh(
     """Run a gh CLI command, raising GitHubError on failure."""
     cmd = ["gh", *args]
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603
             cmd, capture_output=True, text=True, timeout=timeout, input=stdin,
         )
     except FileNotFoundError:
