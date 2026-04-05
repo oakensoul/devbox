@@ -9,6 +9,7 @@ import logging
 import re
 import shlex
 import subprocess
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -278,7 +279,9 @@ def clone_repos(home_dir: Path, preset: Preset, username: str) -> None:
         timeout=10,
     )
 
-    for repo in preset.repos:
+    for i, repo in enumerate(preset.repos):
+        if i > 0:
+            time.sleep(2)  # avoid GitHub SSH rate limiting on bulk clones
         _, repo_name = repo.split("/", 1)
         dest = f"~/Developer/{shlex.quote(repo_name)}"
         _run_checked(
