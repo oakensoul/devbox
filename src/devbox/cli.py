@@ -14,7 +14,6 @@ from rich.table import Table
 
 from devbox.core import create_devbox, list_devboxes, nuke_devbox, rebuild_devbox
 from devbox.exceptions import DevboxError
-from devbox.presets import load_preset
 
 console = Console(stderr=True)
 
@@ -27,28 +26,6 @@ _STATUS_ICONS: dict[str, str] = {
     "nuking": "[red]💀 nuking[/red]",
 }
 
-
-def _print_claude_auth_status(preset_name: str) -> None:
-    """Print Claude Code auth status after create/rebuild.
-
-    If CLAUDE_CODE_OAUTH_TOKEN is present in the preset env_vars, the token
-    will be available in the devbox and no action is needed. Otherwise, print
-    instructions for setting it up.
-    """
-    try:
-        preset_obj = load_preset(preset_name)
-        has_token = "CLAUDE_CODE_OAUTH_TOKEN" in preset_obj.env_vars
-    except Exception:
-        has_token = False
-
-    if has_token:
-        console.print("  Claude Code: [green]✓[/green] OAuth token configured")
-    else:
-        console.print("  Claude Code: [yellow]⚠[/yellow]  OAuth token not configured")
-        console.print("    To enable Claude Code in this devbox:")
-        console.print("    1. Run [cyan]claude setup-token[/cyan] on your primary shell")
-        console.print("    2. Store the token in 1Password (e.g. [dim]op://Vault/Item/credential[/dim])")
-        console.print(f"    3. Add [cyan]CLAUDE_CODE_OAUTH_TOKEN[/cyan] to the [bold]{preset_name}[/bold] preset env_vars and rebuild")
 
 
 @click.group()
@@ -85,7 +62,6 @@ def create(name: str, preset: str | None, dry_run: bool) -> None:
                 status.stop()
             console.print(f"[green]✓[/green] Devbox [bold]{name}[/bold] created successfully")
             console.print(f"  Connect: [cyan]ssh dx-{name}[/cyan]")
-            _print_claude_auth_status(preset)
     except (DevboxError, ValueError) as exc:
         console.print(f"[red]✗[/red] {exc}")
         sys.exit(1)
@@ -100,7 +76,6 @@ def rebuild(name: str) -> None:
             rebuild_devbox(name)
         console.print(f"[green]✓[/green] Devbox [bold]{name}[/bold] rebuilt successfully")
         console.print(f"  Connect: [cyan]ssh dx-{name}[/cyan]")
-        _print_claude_auth_status(name)
     except (DevboxError, ValueError) as exc:
         console.print(f"[red]✗[/red] {exc}")
         sys.exit(1)
