@@ -307,7 +307,6 @@ def bootstrap_user(
         ("brew extras", lambda: install_brew_extras(preset.brew_extras)),
         ("npm globals", lambda: install_npm_globals(home_dir, preset.npm_globals, username)),
         ("pip globals", lambda: install_pip_globals(home_dir, preset.pip_globals, username)),
-        ("clone repos", lambda: clone_repos(home_dir, preset, username)),
     ]
 
     for label, step_fn in steps:
