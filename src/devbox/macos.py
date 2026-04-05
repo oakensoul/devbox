@@ -79,14 +79,14 @@ def _run_dscl(args: list[str]) -> None:
         raise MacOSUserError(f"dscl failed (exit code {result.returncode}): {' '.join(args)}")
 
 
-def _run_cmd(cmd: list[str], error_msg: str) -> None:
+def _run_cmd(cmd: list[str], error_msg: str, timeout: int = 30) -> None:
     """Run a command via sudo, raising MacOSUserError on failure."""
     try:
         result = subprocess.run(
             ["sudo", *cmd],
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=timeout,
         )
     except FileNotFoundError:
         raise MacOSUserError(f"{error_msg}: command not found") from None
@@ -148,16 +148,19 @@ def create_user(name: str) -> str:
         _run_cmd(
             ["createhomedir", "-u", username],
             f"Failed to create home directory for {username}",
+            timeout=60,
         )
         # createhomedir can silently succeed without creating the dir on some
         # macOS versions — fall back to mkdir + chown if needed.
+        # Use UID directly (not username) to avoid directory service lookup
+        # delays immediately after user creation.
         if not os.path.isdir(home_dir):
             _run_cmd(
                 ["mkdir", "-p", home_dir],
                 f"Failed to create home directory {home_dir}",
             )
             _run_cmd(
-                ["chown", f"{username}:staff", home_dir],
+                ["chown", f"{uid}:20", home_dir],
                 f"Failed to set ownership on {home_dir}",
             )
         # Set a random password — keeps the account active for SSH key auth
@@ -210,4 +213,5 @@ def delete_user(name: str) -> None:
     _run_cmd(
         ["rm", "-rf", home_dir],
         f"Failed to remove home directory {home_dir}",
+        timeout=300,
     )
