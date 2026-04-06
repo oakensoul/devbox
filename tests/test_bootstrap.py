@@ -22,6 +22,7 @@ from devbox.bootstrap import (
     install_nvm,
     install_pip_globals,
     install_pyenv,
+    run_loadout,
     setup_gh_auth,
 )
 from devbox.exceptions import BootstrapError
@@ -386,3 +387,55 @@ class TestBootstrapUser:
         warnings = bootstrap_user(HOME, preset, USERNAME)
         assert len(warnings) == 1
         assert "pip" in warnings[0].lower()
+
+
+# ---------------------------------------------------------------------------
+# run_loadout — dotfile clone retry logic
+# ---------------------------------------------------------------------------
+
+
+class TestRunLoadout:
+    def _preset(self, **overrides: object) -> Preset:
+        defaults: dict[str, object] = {
+            "ssh_key": "id_ed25519",
+            "github_account": "testuser",
+            "loadout_orgs": ["personal"],
+            "repos": [],
+        }
+        defaults.update(overrides)
+        return _preset(**defaults)
+
+    def test_clone_retries_on_failure(self, mocker: MockerFixture) -> None:
+        """Dotfile clones should retry up to 2 times with backoff."""
+        mocker.patch("shutil.which", return_value="/usr/local/bin/loadout")
+        mocker.patch("devbox.bootstrap.time.sleep")
+        # Clone dotfiles: ok, clone dotfiles-private: fail,
+        # retry dotfiles-private: ok,
+        # write loadout config + git safe.directory + loadout update
+        mock_run = mocker.patch(
+            "devbox.bootstrap.subprocess.run",
+            side_effect=[_ok(), _fail(), _ok(), _ok(), _ok(), _ok()],
+        )
+        preset = self._preset()
+        run_loadout(HOME, preset, USERNAME)
+        assert mock_run.call_count == 6
+
+    def test_clone_fails_after_retries(self, mocker: MockerFixture) -> None:
+        """Raise BootstrapError after exhausting clone retries."""
+        mocker.patch("shutil.which", return_value="/usr/local/bin/loadout")
+        mocker.patch("devbox.bootstrap.time.sleep")
+        # Both clones fail, and all retries fail too
+        mock_run = mocker.patch(  # noqa: F841
+            "devbox.bootstrap.subprocess.run",
+            return_value=_fail(stderr="Connection closed"),
+        )
+        preset = self._preset()
+        with pytest.raises(BootstrapError, match="Failed to clone dotfiles after 2 retries"):
+            run_loadout(HOME, preset, USERNAME)
+
+    def test_skips_when_no_loadout_orgs(self, mocker: MockerFixture) -> None:
+        """run_loadout is a no-op when loadout_orgs is empty."""
+        mock_run = mocker.patch("devbox.bootstrap.subprocess.run")
+        preset = self._preset(loadout_orgs=[])
+        run_loadout(HOME, preset, USERNAME)
+        mock_run.assert_not_called()

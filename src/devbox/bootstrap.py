@@ -63,14 +63,45 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
     ]
 
     # Clone dotfiles repos via SSH (private repos need SSH auth).
+    # Retry with backoff — GitHub SSH can rate-limit or drop connections.
     acct = preset.github_account
-    for repo in ["dotfiles", "dotfiles-private"]:
+    dotfile_repos = ["dotfiles", "dotfiles-private"]
+    failed: list[str] = []
+    for i, repo in enumerate(dotfile_repos):
+        if i > 0:
+            time.sleep(2)
         clone_cmd = f"test -d ~/.{repo} || git clone git@github.com:{acct}/{repo}.git ~/.{repo}"
-        _run_checked(
-            [*ssh_base, clone_cmd],
-            error_prefix=f"clone {repo}",
-            timeout=120,
-        )
+        try:
+            _run_checked(
+                [*ssh_base, clone_cmd],
+                error_prefix=f"clone {repo}",
+                timeout=120,
+            )
+        except BootstrapError:
+            failed.append(repo)
+
+    for attempt in range(1, 3):
+        if not failed:
+            break
+        logger.warning("Retrying %d failed dotfile clone(s) (attempt %d/2)", len(failed), attempt)
+        time.sleep(10 * attempt)
+        still_failed: list[str] = []
+        for repo in failed:
+            clone_cmd = (
+                f"test -d ~/.{repo} || git clone git@github.com:{acct}/{repo}.git ~/.{repo}"
+            )
+            try:
+                _run_checked(
+                    [*ssh_base, clone_cmd],
+                    error_prefix=f"clone {repo}",
+                    timeout=120,
+                )
+            except BootstrapError:
+                still_failed.append(repo)
+        failed = still_failed
+
+    if failed:
+        raise BootstrapError(f"Failed to clone dotfiles after 2 retries: {', '.join(failed)}")
 
     # Save loadout config so `build` knows the user and orgs.
     orgs_toml = ", ".join(f'"{org}"' for org in preset.loadout_orgs)
