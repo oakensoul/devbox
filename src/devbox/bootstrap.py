@@ -94,17 +94,32 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
         timeout=10,
     )
 
+    # Loadout's .zshrc (from dotfiles) may contain a bare
+    #   eval "$(/opt/homebrew/bin/brew shellenv)"
+    # inside a `if [[ -d /opt/homebrew ]]; then` block.  That overrides our
+    # per-devbox HOMEBREW_PREFIX when loadout spawns sub-shells.  Patch it
+    # BEFORE running loadout so that sub-shells don't clobber the env, then
+    # patch again AFTER in case loadout re-pulled the dotfiles.
+    q_home = shlex.quote(str(home_dir))
+    sed_pattern = (
+        "s|^if \\\\[\\\\[ -d /opt/homebrew \\\\]\\\\];|"
+        'if [[ -z "$HOMEBREW_PREFIX" ]] \\&\\& '
+        "[[ -d /opt/homebrew ]];|"
+    )
+    sed_cmd = f"[ -f ~/.zshrc ] && sed -i '' '{sed_pattern}' ~/.zshrc || true"
+    _run_checked(
+        [*ssh_base, sed_cmd],
+        error_prefix="patch .zshrc brew guard (pre-loadout)",
+        timeout=10,
+    )
+
     # Run loadout update to pull dotfiles and apply full config
     # (build + SSH config + Claude config + brew bundle).
     # Use the host's loadout binary path — the devbox user may not have
     # loadout installed in their own Homebrew yet.
     #
     # Explicitly set HOMEBREW_PREFIX and PATH so loadout's brew steps use the
-    # per-devbox Homebrew at ~/.homebrew instead of /opt/homebrew.  The
-    # dotfiles .zshrc may not yet contain the HOMEBREW_PREFIX guard (changes
-    # might not be pushed to GitHub), and SSH non-interactive commands only
-    # source .zshenv — but loadout may spawn sub-shells that source .zshrc.
-    q_home = shlex.quote(str(home_dir))
+    # per-devbox Homebrew at ~/.homebrew instead of /opt/homebrew.
     _run_checked(
         [
             *ssh_base,
@@ -118,19 +133,10 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
         timeout=600,
     )
 
-    # Loadout's .zshrc may contain a bare `eval "$(brew shellenv)"` for the
-    # host Homebrew.  The devbox user has its own Homebrew at ~/.homebrew
-    # (configured via .zshenv) — running the host's brew hangs or pollutes
-    # fpath with files owned by the wrong UID.  Wrap the block in a guard so
-    # the per-devbox HOMEBREW_PREFIX set in .zshenv takes precedence.
-    sed_pattern = (
-        "s|^if \\\\[\\\\[ -d /opt/homebrew \\\\]\\\\];|"
-        'if [[ -z "$HOMEBREW_PREFIX" ]] \\&\\& '
-        "[[ -d /opt/homebrew ]];|"
-    )
+    # Re-apply the guard — loadout may have re-pulled dotfiles, resetting it.
     _run_checked(
-        [*ssh_base, f"sed -i '' '{sed_pattern}' ~/.zshrc"],
-        error_prefix="patch .zshrc brew guard",
+        [*ssh_base, sed_cmd],
+        error_prefix="patch .zshrc brew guard (post-loadout)",
         timeout=10,
     )
 
