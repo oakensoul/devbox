@@ -94,24 +94,11 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
         timeout=10,
     )
 
-    # Loadout's .zshrc (from dotfiles) may contain a bare
-    #   eval "$(/opt/homebrew/bin/brew shellenv)"
-    # inside a `if [[ -d /opt/homebrew ]]; then` block.  That overrides our
-    # per-devbox HOMEBREW_PREFIX when loadout spawns sub-shells.  Patch it
-    # BEFORE running loadout so that sub-shells don't clobber the env, then
-    # patch again AFTER in case loadout re-pulled the dotfiles.
     q_home = shlex.quote(str(home_dir))
-    sed_pattern = (
-        "s|^if \\\\[\\\\[ -d /opt/homebrew \\\\]\\\\];|"
-        'if [[ -z "$HOMEBREW_PREFIX" ]] \\&\\& '
-        "[[ -d /opt/homebrew ]];|"
-    )
-    sed_cmd = f"[ -f ~/.zshrc ] && sed -i '' '{sed_pattern}' ~/.zshrc || true"
-    _run_checked(
-        [*ssh_base, sed_cmd],
-        error_prefix="patch .zshrc brew guard (pre-loadout)",
-        timeout=10,
-    )
+
+    # No sed patching needed: the dotfiles .zshrc now checks
+    # [[ -z "$HOMEBREW_PREFIX" ]] and probes ~/.homebrew first, so exporting
+    # HOMEBREW_PREFIX below is sufficient to keep sub-shells on the right prefix.
 
     # Run loadout update to pull dotfiles and apply full config
     # (build + SSH config + Claude config + brew bundle).
@@ -131,13 +118,6 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
         ],
         error_prefix="loadout update",
         timeout=600,
-    )
-
-    # Re-apply the guard — loadout may have re-pulled dotfiles, resetting it.
-    _run_checked(
-        [*ssh_base, sed_cmd],
-        error_prefix="patch .zshrc brew guard (post-loadout)",
-        timeout=10,
     )
 
 
@@ -277,8 +257,10 @@ def install_brew_extras(home_dir: Path, packages: list[str], username: str) -> N
     if not packages:
         return
 
-    brew_bin = home_dir / ".homebrew" / "bin" / "brew"
+    brew_prefix = home_dir / ".homebrew"
+    brew_bin = brew_prefix / "bin" / "brew"
     q_home = shlex.quote(str(home_dir))
+    q_prefix = shlex.quote(str(brew_prefix))
     q_brew = shlex.quote(str(brew_bin))
     q_packages = " ".join(shlex.quote(p) for p in packages)
     _run_checked(
@@ -288,7 +270,11 @@ def install_brew_extras(home_dir: Path, packages: list[str], username: str) -> N
             username,
             "bash",
             "-c",
-            f"export HOME={q_home} && {q_brew} install {q_packages}",
+            f"export HOME={q_home} "
+            f"HOMEBREW_PREFIX={q_prefix} "
+            f"HOMEBREW_CELLAR={q_prefix}/Cellar "
+            f"HOMEBREW_REPOSITORY={q_prefix} "
+            f"&& {q_brew} install {q_packages}",
         ],
         error_prefix="brew extras install",
         timeout=_BREW_TIMEOUT,
