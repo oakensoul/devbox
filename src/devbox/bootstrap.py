@@ -101,12 +101,17 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
     # HOMEBREW_PREFIX below is sufficient to keep sub-shells on the right prefix.
 
     # Run loadout update to pull dotfiles and apply full config
-    # (build + SSH config + Claude config + brew bundle).
+    # (build + SSH config + Claude config).
     # Use the host's loadout binary path — the devbox user may not have
     # loadout installed in their own Homebrew yet.
     #
     # Explicitly set HOMEBREW_PREFIX and PATH so loadout's brew steps use the
     # per-devbox Homebrew at ~/.homebrew instead of /opt/homebrew.
+    #
+    # Skip brew bundle and globals — bootstrap_user() already installed
+    # Homebrew, brew extras, nvm/node, pyenv/python, and npm/pip globals.
+    # Re-running them via loadout would redundantly compile from source
+    # (no bottles at the non-standard ~/.homebrew prefix), adding 15-30 min.
     _run_checked(
         [
             *ssh_base,
@@ -114,10 +119,10 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
             f"HOMEBREW_CELLAR={q_home}/.homebrew/Cellar "
             f"HOMEBREW_REPOSITORY={q_home}/.homebrew "
             f"PATH={q_home}/.homebrew/bin:{q_home}/.homebrew/sbin:$PATH "
-            f"&& {shlex.quote(loadout_bin)} update",
+            f"&& {shlex.quote(loadout_bin)} update --skip-brew --skip-globals",
         ],
         error_prefix="loadout update",
-        timeout=600,
+        timeout=180,
     )
 
 
