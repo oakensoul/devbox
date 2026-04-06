@@ -115,9 +115,7 @@ def preflight_devbox(
     if has_op_refs:
         with contextlib.suppress(FileNotFoundError, subprocess.TimeoutExpired):
             subprocess.run(
-                ["op", "whoami"],
-                capture_output=True,
-                timeout=30,  # noqa: S607
+                ["op", "whoami"], capture_output=True, timeout=30,  # noqa: S607
             )
 
     result = subprocess.run(["sudo", "-v"], timeout=60)  # noqa: S607
