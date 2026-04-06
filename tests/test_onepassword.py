@@ -65,7 +65,7 @@ class TestGetSecret:
         get_secret("op://vault/item/field")
 
         _, kwargs = mock_run.call_args
-        assert kwargs["timeout"] == 10
+        assert kwargs["timeout"] == 30
 
     def test_rejects_non_op_reference(self) -> None:
         with pytest.raises(OnePasswordError, match="Invalid 1Password reference"):

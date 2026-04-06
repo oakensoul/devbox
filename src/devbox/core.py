@@ -97,7 +97,7 @@ def preflight_devbox(
     Raises :exc:`DevboxError` on failure.
     """
     validate_name(name)
-    load_preset(preset, presets_dir)
+    preset_obj = load_preset(preset, presets_dir)
 
     existing = find_entry(name, registry_path)
     if existing is not None:
@@ -108,6 +108,17 @@ def preflight_devbox(
             "Remote Login (sshd) is not enabled. "
             "Enable it in System Settings → General → Sharing → Remote Login"
         )
+
+    # Warm up 1Password session before the spinner starts, so the
+    # password/biometric prompt is visible to the user.
+    has_op_refs = any(v.startswith("op://") for v in (preset_obj.env_vars or {}).values())
+    if has_op_refs:
+        with contextlib.suppress(FileNotFoundError, subprocess.TimeoutExpired):
+            subprocess.run(
+                ["op", "whoami"],
+                capture_output=True,
+                timeout=30,  # noqa: S607
+            )
 
     result = subprocess.run(["sudo", "-v"], timeout=60)  # noqa: S607
     if result.returncode != 0:

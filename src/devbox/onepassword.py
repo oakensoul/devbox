@@ -14,7 +14,7 @@ from devbox.exceptions import OnePasswordError
 _OP_REF_RE = re.compile(r"^op://[\w.@ -]+/[\w.@ -]+/[\w.@: -]+$")
 
 
-def get_secret(reference: str, timeout: int = 10) -> str:
+def get_secret(reference: str, timeout: int = 30) -> str:
     """Resolve a single op:// reference via `op read`. Returns the secret value.
 
     Raises OnePasswordError on failure.
