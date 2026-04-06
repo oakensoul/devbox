@@ -62,7 +62,8 @@ def write_zshrc(home_dir: Path, name: str, username: str) -> None:
         'if [[ -z "$SSH_AUTH_SOCK" ]]; then\n'
         '    eval "$(ssh-agent -s)" >/dev/null 2>&1\n'
         "fi\n"
-        "ssh-add -q $(awk '/IdentityFile/{print $2}' ~/.ssh/config) 2>/dev/null\n",
+        "ssh-add -q $(awk '/IdentityFile/{print $2}' ~/.ssh/config"
+        ' | sed "s|^~|$HOME|") 2>/dev/null\n',
         encoding="utf-8",
     )
     os.chmod(zshenv_path, 0o644)
