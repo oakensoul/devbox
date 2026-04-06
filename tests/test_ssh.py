@@ -132,11 +132,11 @@ class TestValidateSSHKeys:
 class TestGetParentGithubUser:
     def test_reads_from_config(self, tmp_path: Path, mocker: MockerFixture) -> None:
         config_path = tmp_path / "config.json"
-        config_path.write_text(json.dumps({"parent_github_user": "oakensoul"}))
+        config_path.write_text(json.dumps({"parent_github_user": "testuser"}))
         mocker.patch("devbox.ssh._CONFIG_PATH", config_path)
 
         result = _get_parent_github_user()
-        assert result == "oakensoul"
+        assert result == "testuser"
 
     def test_missing_config_raises(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mocker.patch("devbox.ssh._CONFIG_PATH", tmp_path / "missing.json")
@@ -172,7 +172,7 @@ class TestPopulateAuthorizedKeys:
         )
         mock_get.return_value.raise_for_status = MagicMock()
 
-        count = populate_authorized_keys(home, github_user="oakensoul")
+        count = populate_authorized_keys(home, github_user="testuser")
 
         assert count == 2
         auth_keys = home / ".ssh" / "authorized_keys"
@@ -203,7 +203,7 @@ class TestPopulateAuthorizedKeys:
         )
 
         with pytest.raises(SSHError, match="Failed to fetch SSH keys"):
-            populate_authorized_keys(home, github_user="oakensoul")
+            populate_authorized_keys(home, github_user="testuser")
 
     def test_uses_config_when_no_user_given(self, tmp_path: Path, mocker: MockerFixture) -> None:
         home = tmp_path / "dx-dev1"

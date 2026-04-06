@@ -32,12 +32,12 @@ Each Mac user has their own devbox registry — devboxes are scoped to the user 
 
 | Mac User | Devboxes |
 |----------|----------|
-| `gunnar` | personal project devboxes |
-| `work` | splash work devboxes |
+| `alice` | personal project devboxes |
+| `work` | acme work devboxes |
 
 Personal and work devboxes are completely separate — flat naming, scoped by which user created them.
 
-All devbox macOS usernames use the `dx-` prefix. A devbox named `splash-work` becomes macOS user `dx-splash-work`, with home directory `/Users/dx-splash-work`.
+All devbox macOS usernames use the `dx-` prefix. A devbox named `acme-work` becomes macOS user `dx-acme-work`, with home directory `/Users/dx-acme-work`.
 
 ---
 
@@ -47,7 +47,7 @@ The parent user's `~/.devbox/config.json` stores global settings:
 
 ```json
 {
-  "parent_github_user": "oakensoul"
+  "parent_github_user": "myuser"
 }
 ```
 
@@ -67,14 +67,14 @@ devbox list                              # show all devboxes for current user
 ### Connecting to a devbox
 
 ```bash
-ssh dx-splash-work@localhost
+ssh dx-acme-work@localhost
 ```
 
 ### `devbox list` output
 
 ```
 NAME          PRESET          CREATED      LAST SEEN    STATUS
-devbox1       splash-data     2025-03-01   2h ago       ✅ healthy
+devbox1       acme-data       2025-03-01   2h ago       ✅ healthy
 devbox2       f1-fantasy      2025-01-15   47d ago      ⚠️  atrophied
 devbox3       default         2025-03-10   SSH timeout  ❌ unreachable
 ```
@@ -133,7 +133,7 @@ Each user maintains `~/.devbox/registry.json`:
   "devboxes": [
     {
       "name": "devbox1",
-      "preset": "splash-data",
+      "preset": "acme-data",
       "created": "2025-03-12",
       "last_seen": "2025-03-12T10:00:00Z",
       "status": "ready",
@@ -163,11 +163,11 @@ Presets live in `~/.dotfiles-private/devbox/presets/<name>.json`:
 ```json
 {
   "version": 1,
-  "name": "splash-data",
+  "name": "acme-data",
   "description": "dbt + Snowflake + Python data work",
   "provider": "anthropic-work",
-  "aws_profile": "splash-main",
-  "github_account": "splash-rob",
+  "aws_profile": "acme-main",
+  "github_account": "acme-dev",
   "node_version": "lts",
   "python_version": "3.12",
   "brew_extras": ["python@3.12"],
@@ -199,13 +199,13 @@ The color scheme is driven by the `color_scheme` field in the preset. The table 
 | Context | Scheme | Why |
 |---------|--------|-----|
 | Production / prod-adjacent | Solarized Dark | Visual warning — be careful |
-| Splash data / dbt | Nord | Calm, focused |
+| Data / dbt work | Nord | Calm, focused |
 | Personal projects | Dracula / Catppuccin | Distinct from work |
 | Default / scratch | Gruvbox | Neutral fallback |
 
 ### Naming
 
-iTerm2 profiles use the `devbox::<name>` convention — e.g. `devbox::splash-work`. The SSH target for that devbox is `dx-splash-work@localhost`.
+iTerm2 profiles use the `devbox::<name>` convention — e.g. `devbox::acme-work`. The SSH target for that devbox is `dx-acme-work@localhost`.
 
 ---
 
@@ -265,10 +265,10 @@ kebab-case everywhere: `[a-z0-9-]`, no leading/trailing dashes. Validated by `na
 
 | Thing | Convention | Example |
 |-------|-----------|---------|
-| Devbox names | kebab-case | `splash-work`, `f1-experiment` |
-| macOS usernames | `dx-<name>` | `dx-splash-work`, `dx-f1-experiment` |
-| Preset names | kebab-case | `splash-data`, `personal-python` |
-| iTerm2 profiles | `devbox::<name>` | `devbox::splash-work` |
+| Devbox names | kebab-case | `acme-work`, `f1-experiment` |
+| macOS usernames | `dx-<name>` | `dx-acme-work`, `dx-f1-experiment` |
+| Preset names | kebab-case | `acme-data`, `personal-python` |
+| iTerm2 profiles | `devbox::<name>` | `devbox::acme-work` |
 
 ---
 

@@ -30,7 +30,7 @@ def _registry_path(tmp_path: Path) -> Path:
 
 def _make_entry(
     name: str = "dev1",
-    preset: str = "splash-data",
+    preset: str = "default",
     status: DevboxStatus = DevboxStatus.CREATING,
     created: str = "2025-03-12",
 ) -> RegistryEntry:
@@ -59,7 +59,7 @@ class TestLoadRegistry:
         p = _registry_path(tmp_path)
         data = {
             "version": 1,
-            "devboxes": [{"name": "dev1", "preset": "splash-data", "created": "2025-03-12"}],
+            "devboxes": [{"name": "dev1", "preset": "default", "created": "2025-03-12"}],
         }
         p.write_text(json.dumps(data))
         reg = load_registry(p)

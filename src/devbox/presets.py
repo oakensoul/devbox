@@ -48,7 +48,7 @@ class Preset(BaseModel):
     provider: str
     aws_profile: str = ""
     github_account: str
-    ssh_key: str = "id_ed25519_oakensoul"
+    ssh_key: str = "id_ed25519"
     color_scheme: str = "gruvbox"
     node_version: str = "lts"
     python_version: str = "3.12"

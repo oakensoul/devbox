@@ -16,7 +16,7 @@ pip install -e .
 
 ```bash
 # Create a devbox from a preset
-devbox create mybox --preset=splash-data
+devbox create mybox --preset=my-preset
 
 # List all devboxes
 devbox list
@@ -39,6 +39,6 @@ each devbox type.
 ```python
 from devbox.core import create_devbox, list_devboxes
 
-entry = create_devbox("mybox", preset="splash-data")
+entry = create_devbox("mybox", preset="my-preset")
 boxes = list_devboxes()
 ```

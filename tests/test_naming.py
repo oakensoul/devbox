@@ -16,7 +16,7 @@ class TestValidNames:
     @pytest.mark.parametrize(
         "name",
         [
-            "splash-work",
+            "my-work",
             "f1-experiment",
             "dev1",
             "a",
@@ -37,11 +37,11 @@ class TestInvalidNames:
     @pytest.mark.parametrize(
         "name",
         [
-            "Splash",  # uppercase letter
-            "splash_work",  # underscore
+            "MyBox",  # uppercase letter
+            "my_work",  # underscore
             "-bad",  # leading dash
             "bad-",  # trailing dash
-            "splash--work",  # consecutive dashes
+            "my--work",  # consecutive dashes
             "",  # empty string
             "has spaces",  # space
             "special!chars",  # exclamation mark
