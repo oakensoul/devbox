@@ -87,9 +87,7 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
         time.sleep(10 * attempt)
         still_failed: list[str] = []
         for repo in failed:
-            clone_cmd = (
-                f"test -d ~/.{repo} || git clone git@github.com:{acct}/{repo}.git ~/.{repo}"
-            )
+            clone_cmd = f"test -d ~/.{repo} || git clone git@github.com:{acct}/{repo}.git ~/.{repo}"
             try:
                 _run_checked(
                     [*ssh_base, clone_cmd],
