@@ -164,7 +164,9 @@ def install_nvm(home_dir: Path, node_version: str, username: str) -> None:
     nvm_dir = home_dir / ".nvm"
     q_home = shlex.quote(str(home_dir))
     q_nvm = shlex.quote(str(nvm_dir))
-    q_node = shlex.quote(node_version)
+    # nvm uses --lts flag rather than a bare "lts" version string
+    nvm_node_arg = "--lts" if node_version == "lts" else node_version
+    q_node = shlex.quote(nvm_node_arg)
 
     # Install nvm via its install script
     _run_checked(
