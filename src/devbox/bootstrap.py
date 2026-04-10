@@ -504,12 +504,10 @@ def setup_gh_auth(home_dir: Path, username: str) -> None:
 def clone_repos(home_dir: Path, preset: Preset, username: str) -> None:
     """Create ~/Developer and clone preset repos as the devbox user.
 
-    Skips repos that are already cloned. Skips entirely if preset.repos is empty.
+    Always creates ~/Developer. Skips cloning if preset.repos is empty.
     Raises :exc:`BootstrapError` on failure.
     """
     _validate_username(username)
-    if not preset.repos:
-        return
 
     ssh_base = [
         "ssh",
@@ -525,6 +523,9 @@ def clone_repos(home_dir: Path, preset: Preset, username: str) -> None:
         error_prefix="create Developer dir",
         timeout=10,
     )
+
+    if not preset.repos:
+        return
 
     failed: list[str] = []
     connection_dead = False

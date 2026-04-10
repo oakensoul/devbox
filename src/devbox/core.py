@@ -266,16 +266,15 @@ def create_devbox(
             except Exception as exc:
                 logger.warning("Loadout failed (non-fatal): %s", exc)
 
-        # Clone repos after SSH access and loadout — needs sshd open and
-        # dotfiles installed so the GitHub SSH key is configured correctly.
-        if preset_obj.repos:
-            step("Cloning repos")
-            try:
-                from devbox.bootstrap import clone_repos
+        # Create ~/Developer and clone repos. Always runs so ~/Developer
+        # exists even when no repos are configured.
+        step("Setting up Developer directory")
+        try:
+            from devbox.bootstrap import clone_repos
 
-                clone_repos(home_dir, preset_obj, username)
-            except Exception as exc:
-                logger.warning("Repo cloning failed (non-fatal): %s", exc)
+            clone_repos(home_dir, preset_obj, username)
+        except Exception as exc:
+            logger.warning("Repo setup failed (non-fatal): %s", exc)
 
         step("Finalizing")
         update_entry(name, registry_path, status=DevboxStatus.READY)
