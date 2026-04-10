@@ -17,10 +17,11 @@ from devbox.naming import GITHUB_ACCOUNT_RE, validate_name
 
 PRESETS_DIR = Path.home() / ".dotfiles-private" / "devbox" / "presets"
 
-# Allows scoped npm (@scope/name) and brew taps (tap/formula), but rejects path traversal.
-_PACKAGE_NAME_RE = re.compile(r"^[a-zA-Z0-9@_./-]+$")
+# Allows scoped npm (@scope/name), brew taps (tap/formula), and pip version
+# pins (pkg==1.2.3), but rejects path traversal.
+_PACKAGE_NAME_RE = re.compile(r"^[a-zA-Z0-9@_./<>=!-]+$")
 _GITHUB_ACCOUNT_RE = GITHUB_ACCOUNT_RE
-_SAFE_VALUE_RE = re.compile(r"^[a-zA-Z0-9@_./:=-]*$")
+_SAFE_VALUE_RE = re.compile(r"^[a-zA-Z0-9@_./:=~-]*$")
 _ENV_KEY_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 _REPO_RE = re.compile(r"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$")
 _VALID_PROVIDERS = frozenset({"local", "aws"})
