@@ -53,6 +53,22 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
             "loadout CLI not found — install it or remove loadout_orgs from preset"
         )
 
+    # shutil.which() may return a pyenv shim which hardcodes the parent
+    # user's PYENV_ROOT and won't work when SSH'd as the devbox user.
+    # Resolve to the real binary so the remote command doesn't depend on
+    # the parent user's pyenv environment.
+    if ".pyenv/shims" in loadout_bin:
+        try:
+            resolved = subprocess.check_output(
+                ["pyenv", "which", "loadout"],
+                text=True,
+                timeout=5,
+            ).strip()
+            if resolved:
+                loadout_bin = resolved
+        except (subprocess.SubprocessError, FileNotFoundError):
+            pass  # fall back to the shim path
+
     ssh_base = [
         "ssh",
         "-o",
