@@ -247,6 +247,7 @@ class TestCreateDevbox:
         mocker.patch("devbox.core.inject_auth")
         mocker.patch("devbox.core.bootstrap_user", return_value=[])
         mocker.patch("devbox.core.write_zshrc")
+        mocker.patch("devbox.core.time.sleep")
 
         return {
             "presets_dir": presets_dir,

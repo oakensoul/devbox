@@ -11,6 +11,7 @@ import logging
 import os
 import re
 import subprocess
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from functools import partial
@@ -268,6 +269,8 @@ def create_devbox(
 
         # Create ~/Developer and clone repos. Always runs so ~/Developer
         # exists even when no repos are configured.
+        # Pause between phases to spread out GitHub SSH connections.
+        time.sleep(5)
         step("Setting up Developer directory")
         try:
             from devbox.bootstrap import clone_repos

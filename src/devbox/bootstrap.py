@@ -175,6 +175,9 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
         timeout=10,
     )
 
+    # Pause between phases to avoid hammering GitHub SSH.
+    time.sleep(_CLONE_DELAY)
+
     # Allow the devbox user to run git in directories owned by other users
     # (e.g. /opt/homebrew and its taps are owned by the parent account).
     # Set system-wide so loadout rebuilding ~/.gitconfig can't wipe it.
