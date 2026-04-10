@@ -28,6 +28,31 @@ _BREW_TIMEOUT = 300  # compiles from source on non-standard prefix
 
 _DX_USERNAME_RE = re.compile(r"^dx-[a-z0-9]+(?:-[a-z0-9]+)*$")
 
+# Delay between individual clone operations (seconds).
+_CLONE_DELAY = 5
+# Base delay between retry rounds (multiplied by attempt number).
+_RETRY_BACKOFF_BASE = 30
+
+# Patterns in stderr that indicate a connection-level failure (not auth or
+# repo-specific).  When these appear, retrying immediately won't help — it
+# just burns through GitHub's SSH rate limit faster.
+_CONNECTION_ERROR_PATTERNS = (
+    "Operation timed out",
+    "Connection refused",
+    "Connection reset",
+    "Connection closed",
+    "Network is unreachable",
+    "No route to host",
+    "Could not resolve hostname",
+    "kex_exchange_identification",
+)
+
+
+def _is_connection_error(exc: BootstrapError) -> bool:
+    """Return True if the error looks like a network/connection failure."""
+    msg = str(exc)
+    return any(pat in msg for pat in _CONNECTION_ERROR_PATTERNS)
+
 
 def _validate_username(username: str) -> None:
     """Raise :exc:`BootstrapError` if *username* doesn't match the devbox naming convention."""
@@ -79,13 +104,13 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
     ]
 
     # Clone dotfiles repos via SSH (private repos need SSH auth).
-    # Retry with backoff — GitHub SSH can rate-limit or drop connections.
     acct = preset.github_account
     dotfile_repos = ["dotfiles", "dotfiles-private"]
     failed: list[str] = []
+    connection_dead = False
     for i, repo in enumerate(dotfile_repos):
         if i > 0:
-            time.sleep(2)
+            time.sleep(_CLONE_DELAY)
         clone_cmd = f"test -d ~/.{repo} || git clone git@github.com:{acct}/{repo}.git ~/.{repo}"
         try:
             _run_checked(
@@ -93,29 +118,49 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
                 error_prefix=f"clone {repo}",
                 timeout=120,
             )
-        except BootstrapError:
+        except BootstrapError as exc:
             failed.append(repo)
+            if _is_connection_error(exc):
+                logger.warning("GitHub SSH connection error — skipping remaining clones")
+                connection_dead = True
+                break
 
-    for attempt in range(1, 3):
-        if not failed:
-            break
-        logger.warning("Retrying %d failed dotfile clone(s) (attempt %d/2)", len(failed), attempt)
-        time.sleep(10 * attempt)
-        still_failed: list[str] = []
-        for repo in failed:
-            clone_cmd = f"test -d ~/.{repo} || git clone git@github.com:{acct}/{repo}.git ~/.{repo}"
-            try:
-                _run_checked(
-                    [*ssh_base, clone_cmd],
-                    error_prefix=f"clone {repo}",
-                    timeout=120,
+    if not connection_dead:
+        for attempt in range(1, 3):
+            if not failed:
+                break
+            logger.warning(
+                "Retrying %d failed dotfile clone(s) (attempt %d/2)",
+                len(failed),
+                attempt,
+            )
+            time.sleep(_RETRY_BACKOFF_BASE * attempt)
+            still_failed: list[str] = []
+            for repo in failed:
+                clone_cmd = (
+                    f"test -d ~/.{repo} || git clone git@github.com:{acct}/{repo}.git ~/.{repo}"
                 )
-            except BootstrapError:
-                still_failed.append(repo)
-        failed = still_failed
+                try:
+                    _run_checked(
+                        [*ssh_base, clone_cmd],
+                        error_prefix=f"clone {repo}",
+                        timeout=120,
+                    )
+                except BootstrapError as exc:
+                    still_failed.append(repo)
+                    if _is_connection_error(exc):
+                        logger.warning("GitHub SSH still unreachable — aborting retries")
+                        still_failed.extend(
+                            r for r in failed if r not in still_failed
+                        )
+                        connection_dead = True
+                        break
+            failed = still_failed
+            if connection_dead:
+                break
 
     if failed:
-        raise BootstrapError(f"Failed to clone dotfiles after 2 retries: {', '.join(failed)}")
+        raise BootstrapError(f"Failed to clone dotfiles after retries: {', '.join(failed)}")
 
     # Save loadout config so `build` knows the user and orgs.
     orgs_toml = ", ".join(f'"{org}"' for org in preset.loadout_orgs)
@@ -482,9 +527,10 @@ def clone_repos(home_dir: Path, preset: Preset, username: str) -> None:
     )
 
     failed: list[str] = []
+    connection_dead = False
     for i, repo in enumerate(preset.repos):
         if i > 0:
-            time.sleep(2)  # avoid GitHub SSH rate limiting on bulk clones
+            time.sleep(_CLONE_DELAY)
         _, repo_name = repo.split("/", 1)
         dest = f"~/Developer/{shlex.quote(repo_name)}"
         try:
@@ -496,37 +542,52 @@ def clone_repos(home_dir: Path, preset: Preset, username: str) -> None:
                 error_prefix=f"clone {repo}",
                 timeout=120,
             )
-        except BootstrapError:
+        except BootstrapError as exc:
             failed.append(repo)
+            if _is_connection_error(exc):
+                logger.warning("GitHub SSH connection error — skipping remaining clones")
+                connection_dead = True
+                # Add remaining repos to failed list so the error is complete.
+                failed.extend(r for r in preset.repos[i + 1 :] if r not in failed)
+                break
 
-    # Retry failed clones up to 2 times, with a longer delay before each attempt.
-    for attempt in range(1, 3):
-        if not failed:
-            break
-        logger.warning("Retrying %d failed clone(s) (attempt %d/2)", len(failed), attempt)
-        time.sleep(10 * attempt)
-        still_failed: list[str] = []
-        for repo in failed:
-            _, repo_name = repo.split("/", 1)
-            dest = f"~/Developer/{shlex.quote(repo_name)}"
-            try:
-                _run_checked(
-                    [
-                        *ssh_base,
-                        f"test -d {dest} || git clone "
-                        f"git@github.com:{shlex.quote(repo)}.git {dest}",
-                    ],
-                    error_prefix=f"clone {repo}",
-                    timeout=120,
-                )
-            except BootstrapError:
-                still_failed.append(repo)
-            else:
-                time.sleep(2)
-        failed = still_failed
+    if not connection_dead:
+        for attempt in range(1, 3):
+            if not failed:
+                break
+            logger.warning("Retrying %d failed clone(s) (attempt %d/2)", len(failed), attempt)
+            time.sleep(_RETRY_BACKOFF_BASE * attempt)
+            still_failed: list[str] = []
+            for repo in failed:
+                _, repo_name = repo.split("/", 1)
+                dest = f"~/Developer/{shlex.quote(repo_name)}"
+                try:
+                    _run_checked(
+                        [
+                            *ssh_base,
+                            f"test -d {dest} || git clone "
+                            f"git@github.com:{shlex.quote(repo)}.git {dest}",
+                        ],
+                        error_prefix=f"clone {repo}",
+                        timeout=120,
+                    )
+                except BootstrapError as exc:
+                    still_failed.append(repo)
+                    if _is_connection_error(exc):
+                        logger.warning("GitHub SSH still unreachable — aborting retries")
+                        still_failed.extend(
+                            r for r in failed if r not in still_failed
+                        )
+                        connection_dead = True
+                        break
+                else:
+                    time.sleep(_CLONE_DELAY)
+            failed = still_failed
+            if connection_dead:
+                break
 
     if failed:
-        raise BootstrapError(f"Failed to clone after 2 retries: {', '.join(failed)}")
+        raise BootstrapError(f"Failed to clone after retries: {', '.join(failed)}")
 
 
 def bootstrap_user(

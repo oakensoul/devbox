@@ -62,7 +62,10 @@ def copy_keypair(home_dir: Path, ssh_key: str = "id_ed25519") -> str:
         f"Host github.com\n"
         f"  IdentityFile ~/.ssh/{ssh_key}\n"
         f"  IdentitiesOnly yes\n"
-        f"  StrictHostKeyChecking accept-new\n",
+        f"  StrictHostKeyChecking accept-new\n"
+        f"  ControlMaster auto\n"
+        f"  ControlPath ~/.ssh/cm-%r@%h:%p\n"
+        f"  ControlPersist 120\n",
         encoding="utf-8",
     )
     os.chmod(ssh_config, 0o600)

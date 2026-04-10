@@ -421,17 +421,34 @@ class TestRunLoadout:
         assert mock_run.call_count == 6
 
     def test_clone_fails_after_retries(self, mocker: MockerFixture) -> None:
-        """Raise BootstrapError after exhausting clone retries."""
+        """Raise BootstrapError after exhausting clone retries (non-connection error)."""
         mocker.patch("shutil.which", return_value="/usr/local/bin/loadout")
         mocker.patch("devbox.bootstrap.time.sleep")
-        # Both clones fail, and all retries fail too
+        # Both clones fail with a non-connection error, retries also fail
         mock_run = mocker.patch(  # noqa: F841
+            "devbox.bootstrap.subprocess.run",
+            return_value=_fail(stderr="permission denied"),
+        )
+        preset = self._preset()
+        with pytest.raises(BootstrapError, match="Failed to clone dotfiles after retries"):
+            run_loadout(HOME, preset, USERNAME)
+
+    def test_clone_fails_fast_on_connection_error(self, mocker: MockerFixture) -> None:
+        """Fail fast and skip retries on connection errors."""
+        mocker.patch("shutil.which", return_value="/usr/local/bin/loadout")
+        mock_sleep = mocker.patch("devbox.bootstrap.time.sleep")
+        mock_run = mocker.patch(
             "devbox.bootstrap.subprocess.run",
             return_value=_fail(stderr="Connection closed"),
         )
         preset = self._preset()
-        with pytest.raises(BootstrapError, match="Failed to clone dotfiles after 2 retries"):
+        with pytest.raises(BootstrapError, match="Failed to clone dotfiles after retries"):
             run_loadout(HOME, preset, USERNAME)
+        # Should only attempt the first clone, then bail — no retries
+        assert mock_run.call_count == 1
+        # No retry backoff sleeps (only the initial clone delay or none)
+        for call in mock_sleep.call_args_list:
+            assert call.args[0] < 10  # no 30s+ retry backoff
 
     def test_skips_when_no_loadout_orgs(self, mocker: MockerFixture) -> None:
         """run_loadout is a no-op when loadout_orgs is empty."""
