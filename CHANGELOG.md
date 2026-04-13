@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Add concurrency control to CI workflows
 
 ### Added
+- `devbox refresh <name>` and `devbox refresh --all` to push current dotfiles/config to existing devboxes without destroying state, with `--with-brew` and `--with-globals` opt-in flags for slower full reinstalls (#49)
 - SPDX license headers and copyright notices on all source files
 - CODE_OF_CONDUCT.md (Contributor Covenant v2.1)
 - GitHub issue templates (bug report, feature request)
