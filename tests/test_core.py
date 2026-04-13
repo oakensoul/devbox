@@ -757,9 +757,7 @@ class TestRefreshDevbox:
         mock_npm = mocker.patch("devbox.bootstrap.install_npm_globals")
         mock_pip = mocker.patch("devbox.bootstrap.install_pip_globals")
 
-        refresh_devbox(
-            "mybox", registry_path=registry_path, presets_dir=presets_dir
-        )
+        refresh_devbox("mybox", registry_path=registry_path, presets_dir=presets_dir)
 
         mock_refresh.assert_called_once()
         _, kwargs = mock_refresh.call_args
@@ -768,9 +766,7 @@ class TestRefreshDevbox:
         mock_npm.assert_not_called()
         mock_pip.assert_not_called()
 
-    def test_with_brew_runs_extras(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
+    def test_with_brew_runs_extras(self, tmp_path: Path, mocker: MockerFixture) -> None:
         registry_path, presets_dir = self._setup(tmp_path, brew_extras=["jq", "fd"])
         mocker.patch("devbox.bootstrap.refresh_dotfiles")
         mock_brew = mocker.patch("devbox.bootstrap.install_brew_extras")
@@ -787,9 +783,7 @@ class TestRefreshDevbox:
         assert args[1] == ["jq", "fd"]
         assert args[2] == "dx-mybox"
 
-    def test_with_globals_runs_npm_and_pip(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
+    def test_with_globals_runs_npm_and_pip(self, tmp_path: Path, mocker: MockerFixture) -> None:
         registry_path, presets_dir = self._setup(
             tmp_path, npm_globals=["typescript"], pip_globals=["ruff"]
         )
@@ -823,18 +817,14 @@ class TestRefreshDevbox:
         "status",
         [DevboxStatus.CREATING, DevboxStatus.NUKING],
     )
-    def test_non_ready_status_raises(
-        self, tmp_path: Path, status: DevboxStatus
-    ) -> None:
+    def test_non_ready_status_raises(self, tmp_path: Path, status: DevboxStatus) -> None:
         presets_dir = tmp_path / "presets"
         presets_dir.mkdir()
         _make_preset_file(presets_dir, "test-preset")
         registry_path = tmp_path / "registry.json"
         _make_registry(registry_path, [_entry("mybox", status=status)])
         with pytest.raises(DevboxError, match="not ready"):
-            refresh_devbox(
-                "mybox", registry_path=registry_path, presets_dir=presets_dir
-            )
+            refresh_devbox("mybox", registry_path=registry_path, presets_dir=presets_dir)
 
     def test_with_brew_skips_install_when_no_extras(
         self, tmp_path: Path, mocker: MockerFixture

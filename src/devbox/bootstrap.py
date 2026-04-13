@@ -212,9 +212,7 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
                     still_failed.append(repo)
                     if _is_connection_error(exc):
                         logger.warning("GitHub SSH still unreachable — aborting retries")
-                        still_failed.extend(
-                            r for r in failed if r not in still_failed
-                        )
+                        still_failed.extend(r for r in failed if r not in still_failed)
                         connection_dead = True
                         break
             failed = still_failed
@@ -617,9 +615,7 @@ def clone_repos(home_dir: Path, preset: Preset, username: str) -> None:
                     still_failed.append(repo)
                     if _is_connection_error(exc):
                         logger.warning("GitHub SSH still unreachable — aborting retries")
-                        still_failed.extend(
-                            r for r in failed if r not in still_failed
-                        )
+                        still_failed.extend(r for r in failed if r not in still_failed)
                         connection_dead = True
                         break
                 else:

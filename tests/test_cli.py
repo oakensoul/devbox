@@ -340,9 +340,7 @@ class TestRefreshCommand:
         result = runner.invoke(cli, ["refresh", "mybox", "--all"])
         assert result.exit_code == 1
 
-    def test_all_iterates_ready_devboxes(
-        self, runner: CliRunner, mocker: MockerFixture
-    ) -> None:
+    def test_all_iterates_ready_devboxes(self, runner: CliRunner, mocker: MockerFixture) -> None:
         from devbox.registry import DevboxStatus, RegistryEntry
 
         entries = [
@@ -408,9 +406,7 @@ class TestRefreshCommand:
     def test_single_box_unexpected_exception_propagates(
         self, runner: CliRunner, mocker: MockerFixture
     ) -> None:
-        mocker.patch(
-            "devbox.cli.refresh_devbox", side_effect=OSError("ssh binary gone")
-        )
+        mocker.patch("devbox.cli.refresh_devbox", side_effect=OSError("ssh binary gone"))
         mocker.patch("devbox.cli.console")
         result = runner.invoke(cli, ["refresh", "mybox"])
         assert result.exit_code != 0

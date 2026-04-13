@@ -92,9 +92,7 @@ def rebuild(name: str) -> None:
 
 @cli.command()
 @click.argument("name", required=False)
-@click.option(
-    "--all", "all_", is_flag=True, default=False, help="Refresh every registered devbox."
-)
+@click.option("--all", "all_", is_flag=True, default=False, help="Refresh every registered devbox.")
 @click.option(
     "--with-brew",
     is_flag=True,
