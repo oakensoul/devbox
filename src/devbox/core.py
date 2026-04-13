@@ -501,7 +501,7 @@ def refresh_devbox(
     home_dir = Path(f"/Users/{username}")
 
     from devbox.bootstrap import (
-        _ssh_base,
+        build_ssh_base,
         install_brew_extras,
         install_npm_globals,
         install_pip_globals,
@@ -525,7 +525,7 @@ def refresh_devbox(
 
     # Run install steps via SSH as the devbox user — avoids host sudo so
     # refresh works in non-interactive shells.
-    ssh_base = _ssh_base(preset_obj, username)
+    ssh_base = build_ssh_base(preset_obj, username)
 
     if with_brew and preset_obj.brew_extras:
         install_brew_extras(home_dir, preset_obj.brew_extras, username, ssh_base=ssh_base)

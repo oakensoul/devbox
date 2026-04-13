@@ -89,7 +89,7 @@ def _resolve_loadout_bin() -> str:
     return loadout_bin
 
 
-def _ssh_base(preset: Preset, username: str) -> list[str]:
+def build_ssh_base(preset: Preset, username: str) -> list[str]:
     """Return the SSH command prefix for connecting to a devbox as *username*.
 
     Returns a fresh list each call so callers can safely splat/append.
@@ -122,7 +122,7 @@ def refresh_dotfiles(
         return
 
     loadout_bin = _resolve_loadout_bin()
-    ssh_base = _ssh_base(preset, username)
+    ssh_base = build_ssh_base(preset, username)
     q_home = shlex.quote(str(home_dir))
 
     flags = []
@@ -163,7 +163,7 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
 
     # Resolve loadout bin early so we fail fast before slow clone steps.
     _resolve_loadout_bin()
-    ssh_base = _ssh_base(preset, username)
+    ssh_base = build_ssh_base(preset, username)
 
     # Clone dotfiles repos via SSH (private repos need SSH auth).
     acct = preset.github_account
@@ -387,12 +387,15 @@ def install_homebrew(home_dir: Path, username: str) -> None:
 def _wrap_as_user(inner_cmd: str, username: str, ssh_base: list[str] | None) -> list[str]:
     """Wrap *inner_cmd* so it runs as the devbox user.
 
-    When *ssh_base* is given, execute via SSH (no host sudo needed).
-    Otherwise, run locally via ``sudo -u <username> bash -c ...`` — used
-    during initial bootstrap before the devbox has SSH access set up.
+    When *ssh_base* is given, execute via SSH (no host sudo needed). The
+    inner command is wrapped as ``bash -c <quoted>`` on the remote so
+    execution parity with the ``sudo -u`` path doesn't depend on the
+    devbox user's login shell. Otherwise, run locally via
+    ``sudo -u <username> bash -c ...`` — used during initial bootstrap
+    before the devbox has SSH access set up.
     """
     if ssh_base is not None:
-        return [*ssh_base, inner_cmd]
+        return [*ssh_base, f"bash -c {shlex.quote(inner_cmd)}"]
     return ["sudo", "-u", username, "bash", "-c", inner_cmd]
 
 
@@ -706,9 +709,16 @@ def _run_checked(
 
     if result.returncode != 0:
         stderr_tail = (result.stderr or "").strip()[-500:]
+        # SSH returns 255 for any connection-layer failure (auth, host key,
+        # network). Flag it so operators don't confuse it with a package
+        # install failure.
+        rc_label = (
+            "SSH connection failure (exit 255)"
+            if result.returncode == 255 and cmd and cmd[0] == "ssh"
+            else f"exit code {result.returncode}"
+        )
         raise BootstrapError(
-            f"{error_prefix}: exit code {result.returncode}"
-            + (f" — {stderr_tail}" if stderr_tail else "")
+            f"{error_prefix}: {rc_label}" + (f" — {stderr_tail}" if stderr_tail else "")
         )
 
     return result

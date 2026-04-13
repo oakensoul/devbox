@@ -779,9 +779,14 @@ class TestRefreshDevbox:
         )
 
         mock_brew.assert_called_once()
-        args = mock_brew.call_args[0]
+        args, kwargs = mock_brew.call_args
         assert args[1] == ["jq", "fd"]
         assert args[2] == "dx-mybox"
+        # ssh_base must be threaded through so installs run over SSH,
+        # not via host sudo (the whole point of the refactor).
+        assert "ssh_base" in kwargs
+        assert kwargs["ssh_base"][0] == "ssh"
+        assert kwargs["ssh_base"][-1] == "dx-mybox@localhost"
 
     def test_with_globals_runs_npm_and_pip(self, tmp_path: Path, mocker: MockerFixture) -> None:
         registry_path, presets_dir = self._setup(
@@ -800,6 +805,10 @@ class TestRefreshDevbox:
 
         mock_npm.assert_called_once()
         mock_pip.assert_called_once()
+        for mock_call in (mock_npm.call_args, mock_pip.call_args):
+            _, kwargs = mock_call
+            assert "ssh_base" in kwargs
+            assert kwargs["ssh_base"][0] == "ssh"
 
     def test_not_found_raises(self, tmp_path: Path) -> None:
         registry_path = tmp_path / "registry.json"
