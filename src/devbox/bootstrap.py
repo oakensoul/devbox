@@ -60,16 +60,12 @@ def _validate_username(username: str) -> None:
         raise BootstrapError(f"Invalid devbox username: {username!r}")
 
 
-def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
-    """Run loadout init as the devbox user to set up dotfiles and config.
+def _resolve_loadout_bin() -> str:
+    """Resolve the loadout binary to a real path (not a pyenv shim).
 
-    Skips if no loadout_orgs are configured in the preset.
-    Raises :exc:`BootstrapError` on failure.
+    pyenv shims hardcode the parent user's PYENV_ROOT and won't work
+    when SSH'd as the devbox user.
     """
-    _validate_username(username)
-    if not preset.loadout_orgs:
-        return
-
     import shutil
 
     loadout_bin = shutil.which("loadout")
@@ -78,10 +74,6 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
             "loadout CLI not found — install it or remove loadout_orgs from preset"
         )
 
-    # shutil.which() may return a pyenv shim which hardcodes the parent
-    # user's PYENV_ROOT and won't work when SSH'd as the devbox user.
-    # Resolve to the real binary so the remote command doesn't depend on
-    # the parent user's pyenv environment.
     if ".pyenv/shims" in loadout_bin:
         try:
             resolved = subprocess.check_output(
@@ -94,7 +86,15 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
         except (subprocess.SubprocessError, FileNotFoundError):
             pass  # fall back to the shim path
 
-    ssh_base = [
+    return loadout_bin
+
+
+def _ssh_base(preset: Preset, username: str) -> list[str]:
+    """Return the SSH command prefix for connecting to a devbox as *username*.
+
+    Returns a fresh list each call so callers can safely splat/append.
+    """
+    return [
         "ssh",
         "-o",
         "StrictHostKeyChecking=no",
@@ -102,6 +102,68 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
         str(Path.home() / ".ssh" / preset.ssh_key),
         f"{username}@localhost",
     ]
+
+
+def refresh_dotfiles(
+    home_dir: Path,
+    preset: Preset,
+    username: str,
+    *,
+    with_brew: bool = False,
+    with_globals: bool = False,
+) -> None:
+    """Run ``loadout update`` over SSH to refresh dotfiles on an existing devbox.
+
+    Skips if no loadout_orgs are configured in the preset.
+    Raises :exc:`BootstrapError` on failure.
+    """
+    _validate_username(username)
+    if not preset.loadout_orgs:
+        return
+
+    loadout_bin = _resolve_loadout_bin()
+    ssh_base = _ssh_base(preset, username)
+    q_home = shlex.quote(str(home_dir))
+
+    flags = []
+    if not with_brew:
+        flags.append("--skip-brew")
+    if not with_globals:
+        flags.append("--skip-globals")
+    flag_str = (" " + " ".join(flags)) if flags else ""
+
+    # Brew bundle at the non-standard ~/.homebrew prefix has no bottles, so
+    # it compiles from source and can take 15-30 min — hence the longer
+    # timeout when --with-brew is requested.
+    timeout = 1800 if with_brew else 180
+
+    _run_checked(
+        [
+            *ssh_base,
+            f"export HOMEBREW_PREFIX={q_home}/.homebrew "
+            f"HOMEBREW_CELLAR={q_home}/.homebrew/Cellar "
+            f"HOMEBREW_REPOSITORY={q_home}/.homebrew "
+            f"PATH={q_home}/.homebrew/bin:{q_home}/.homebrew/sbin:$PATH "
+            f"&& {shlex.quote(loadout_bin)} update{flag_str}",
+        ],
+        error_prefix="loadout update",
+        timeout=timeout,
+    )
+
+
+def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
+    """Run loadout init as the devbox user to set up dotfiles and config.
+
+    Skips if no loadout_orgs are configured in the preset.
+    Raises :exc:`BootstrapError` on failure.
+    """
+    _validate_username(username)
+    if not preset.loadout_orgs:
+        return
+
+    # Resolve loadout bin early so we fail fast before slow clone steps.
+    _resolve_loadout_bin()
+    ssh_base = _ssh_base(preset, username)
 
     # Clone dotfiles repos via SSH (private repos need SSH auth).
     acct = preset.github_account
@@ -150,9 +212,7 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
                     still_failed.append(repo)
                     if _is_connection_error(exc):
                         logger.warning("GitHub SSH still unreachable — aborting retries")
-                        still_failed.extend(
-                            r for r in failed if r not in still_failed
-                        )
+                        still_failed.extend(r for r in failed if r not in still_failed)
                         connection_dead = True
                         break
             failed = still_failed
@@ -187,36 +247,12 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
         timeout=10,
     )
 
-    q_home = shlex.quote(str(home_dir))
-
-    # No sed patching needed: the dotfiles .zshrc now checks
-    # [[ -z "$HOMEBREW_PREFIX" ]] and probes ~/.homebrew first, so exporting
-    # HOMEBREW_PREFIX below is sufficient to keep sub-shells on the right prefix.
-
-    # Run loadout update to pull dotfiles and apply full config
-    # (build + SSH config + Claude config).
-    # Use the host's loadout binary path — the devbox user may not have
-    # loadout installed in their own Homebrew yet.
-    #
-    # Explicitly set HOMEBREW_PREFIX and PATH so loadout's brew steps use the
-    # per-devbox Homebrew at ~/.homebrew instead of /opt/homebrew.
-    #
+    # Run loadout update to pull dotfiles and apply full config.
     # Skip brew bundle and globals — bootstrap_user() already installed
     # Homebrew, brew extras, nvm/node, pyenv/python, and npm/pip globals.
     # Re-running them via loadout would redundantly compile from source
     # (no bottles at the non-standard ~/.homebrew prefix), adding 15-30 min.
-    _run_checked(
-        [
-            *ssh_base,
-            f"export HOMEBREW_PREFIX={q_home}/.homebrew "
-            f"HOMEBREW_CELLAR={q_home}/.homebrew/Cellar "
-            f"HOMEBREW_REPOSITORY={q_home}/.homebrew "
-            f"PATH={q_home}/.homebrew/bin:{q_home}/.homebrew/sbin:$PATH "
-            f"&& {shlex.quote(loadout_bin)} update --skip-brew --skip-globals",
-        ],
-        error_prefix="loadout update",
-        timeout=180,
-    )
+    refresh_dotfiles(home_dir, preset, username)
 
 
 def install_nvm(home_dir: Path, node_version: str, username: str) -> None:
@@ -579,9 +615,7 @@ def clone_repos(home_dir: Path, preset: Preset, username: str) -> None:
                     still_failed.append(repo)
                     if _is_connection_error(exc):
                         logger.warning("GitHub SSH still unreachable — aborting retries")
-                        still_failed.extend(
-                            r for r in failed if r not in still_failed
-                        )
+                        still_failed.extend(r for r in failed if r not in still_failed)
                         connection_dead = True
                         break
                 else:

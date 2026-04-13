@@ -315,6 +315,116 @@ class TestRebuildCommand:
         assert result.exit_code == 1
 
 
+class TestRefreshCommand:
+    def test_happy_path(self, runner: CliRunner, mocker: MockerFixture) -> None:
+        mocker.patch("devbox.cli.refresh_devbox")
+        mocker.patch("devbox.cli.console")
+        result = runner.invoke(cli, ["refresh", "mybox"])
+        assert result.exit_code == 0
+
+    def test_passes_flags(self, runner: CliRunner, mocker: MockerFixture) -> None:
+        mock_refresh = mocker.patch("devbox.cli.refresh_devbox")
+        mocker.patch("devbox.cli.console")
+        runner.invoke(cli, ["refresh", "mybox", "--with-brew", "--with-globals"])
+        mock_refresh.assert_called_once_with("mybox", with_brew=True, with_globals=True)
+
+    def test_requires_name_or_all(self, runner: CliRunner, mocker: MockerFixture) -> None:
+        mocker.patch("devbox.cli.console")
+        result = runner.invoke(cli, ["refresh"])
+        assert result.exit_code == 1
+
+    def test_name_and_all_mutually_exclusive(
+        self, runner: CliRunner, mocker: MockerFixture
+    ) -> None:
+        mocker.patch("devbox.cli.console")
+        result = runner.invoke(cli, ["refresh", "mybox", "--all"])
+        assert result.exit_code == 1
+
+    def test_all_iterates_ready_devboxes(self, runner: CliRunner, mocker: MockerFixture) -> None:
+        from devbox.registry import DevboxStatus, Registry, RegistryEntry
+
+        entries = [
+            RegistryEntry(name="a", preset="p", created="2025-01-01", status=DevboxStatus.READY),
+            RegistryEntry(name="b", preset="p", created="2025-01-01", status=DevboxStatus.READY),
+            RegistryEntry(name="c", preset="p", created="2025-01-01", status=DevboxStatus.NUKING),
+        ]
+        mocker.patch("devbox.cli.load_registry", return_value=Registry(devboxes=entries))
+        mock_refresh = mocker.patch("devbox.cli.refresh_devbox")
+        mocker.patch("devbox.cli.console")
+
+        result = runner.invoke(cli, ["refresh", "--all"])
+
+        assert result.exit_code == 0
+        assert mock_refresh.call_count == 2
+        called_names = {c.args[0] for c in mock_refresh.call_args_list}
+        assert called_names == {"a", "b"}
+
+    def test_all_collects_failures_and_continues(
+        self, runner: CliRunner, mocker: MockerFixture
+    ) -> None:
+        from devbox.registry import DevboxStatus, Registry, RegistryEntry
+
+        entries = [
+            RegistryEntry(name="a", preset="p", created="2025-01-01", status=DevboxStatus.READY),
+            RegistryEntry(name="b", preset="p", created="2025-01-01", status=DevboxStatus.READY),
+        ]
+        mocker.patch("devbox.cli.load_registry", return_value=Registry(devboxes=entries))
+        mocker.patch(
+            "devbox.cli.refresh_devbox",
+            side_effect=[DevboxError("boom"), None],
+        )
+        mocker.patch("devbox.cli.console")
+
+        result = runner.invoke(cli, ["refresh", "--all"])
+
+        assert result.exit_code == 1  # because one failed
+
+    def test_devbox_error_exits_1(self, runner: CliRunner, mocker: MockerFixture) -> None:
+        mocker.patch("devbox.cli.refresh_devbox", side_effect=DevboxError("nope"))
+        mocker.patch("devbox.cli.console")
+        result = runner.invoke(cli, ["refresh", "mybox"])
+        assert result.exit_code == 1
+
+    def test_all_survives_unexpected_exception(
+        self, runner: CliRunner, mocker: MockerFixture
+    ) -> None:
+        from devbox.registry import DevboxStatus, Registry, RegistryEntry
+
+        entries = [
+            RegistryEntry(name="a", preset="p", created="2025-01-01", status=DevboxStatus.READY),
+            RegistryEntry(name="b", preset="p", created="2025-01-01", status=DevboxStatus.READY),
+        ]
+        mocker.patch("devbox.cli.load_registry", return_value=Registry(devboxes=entries))
+        mocker.patch(
+            "devbox.cli.refresh_devbox",
+            side_effect=[OSError("ssh binary gone"), None],
+        )
+        mocker.patch("devbox.cli.console")
+        result = runner.invoke(cli, ["refresh", "--all"])
+        assert result.exit_code == 1  # one failed, but loop continued
+
+    def test_single_box_unexpected_exception_propagates(
+        self, runner: CliRunner, mocker: MockerFixture
+    ) -> None:
+        mocker.patch("devbox.cli.refresh_devbox", side_effect=OSError("ssh binary gone"))
+        mocker.patch("devbox.cli.console")
+        result = runner.invoke(cli, ["refresh", "mybox"])
+        assert result.exit_code != 0
+        assert isinstance(result.exception, OSError)
+
+    def test_all_with_empty_registry_exits_zero(
+        self, runner: CliRunner, mocker: MockerFixture
+    ) -> None:
+        from devbox.registry import Registry
+
+        mocker.patch("devbox.cli.load_registry", return_value=Registry(devboxes=[]))
+        mock_refresh = mocker.patch("devbox.cli.refresh_devbox")
+        mocker.patch("devbox.cli.console")
+        result = runner.invoke(cli, ["refresh", "--all"])
+        assert result.exit_code == 0
+        mock_refresh.assert_not_called()
+
+
 class TestNukeCommand:
     def _mock_sudo(self, mocker: MockerFixture) -> None:
         """Mock the sudo -v warmup call in the nuke command."""

@@ -12,8 +12,15 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from devbox.core import create_devbox, list_devboxes, nuke_devbox, rebuild_devbox
+from devbox.core import (
+    create_devbox,
+    list_devboxes,
+    nuke_devbox,
+    rebuild_devbox,
+    refresh_devbox,
+)
 from devbox.exceptions import DevboxError
+from devbox.registry import DevboxStatus, load_registry
 
 console = Console(stderr=True)
 
@@ -81,6 +88,92 @@ def rebuild(name: str) -> None:
     except (DevboxError, ValueError) as exc:
         console.print(f"[red]✗[/red] {exc}")
         sys.exit(1)
+
+
+@cli.command()
+@click.argument("name", required=False)
+@click.option("--all", "all_", is_flag=True, default=False, help="Refresh every registered devbox.")
+@click.option(
+    "--with-brew",
+    is_flag=True,
+    default=False,
+    help=(
+        "Also reinstall brew packages: BOTH the loadout Brewfile AND the "
+        "preset's brew_extras (two different sets). Required to pick up preset "
+        "brew_extras changes. Slow: 15-30 min/box, serial under --all."
+    ),
+)
+@click.option(
+    "--with-globals",
+    is_flag=True,
+    default=False,
+    help=(
+        "Also reinstall npm/pip globals: BOTH the loadout globals AND the "
+        "preset's npm_globals/pip_globals. Required to pick up preset globals changes."
+    ),
+)
+def refresh(name: str | None, all_: bool, with_brew: bool, with_globals: bool) -> None:
+    """Push current dotfiles/config to an existing devbox without destroying state."""
+    if all_ and name:
+        console.print("[red]✗[/red] Pass either NAME or --all, not both")
+        sys.exit(1)
+    if not all_ and not name:
+        console.print("[red]✗[/red] Pass a devbox NAME or --all")
+        sys.exit(1)
+
+    if all_:
+        registry = load_registry()
+        targets = [e.name for e in registry.devboxes if e.status == DevboxStatus.READY]
+        if not targets:
+            console.print("[yellow]No ready devboxes to refresh[/yellow]")
+            return
+    else:
+        # name is non-None — guarded by the "Pass a devbox NAME or --all" check above.
+        targets = [name] if name is not None else []
+
+    scope_parts = ["dotfiles"]
+    if with_brew:
+        scope_parts.append("brew")
+    if with_globals:
+        scope_parts.append("globals")
+    scope = ", ".join(scope_parts)
+
+    failures: list[tuple[str, str]] = []
+    for box in targets:
+        try:
+            with console.status(f"[bold]Refreshing {box!r} ({scope})..."):
+                refresh_devbox(box, with_brew=with_brew, with_globals=with_globals)
+            console.print(f"[green]✓[/green] {box} refreshed ({scope})")
+        except (DevboxError, ValueError) as exc:
+            # Catch DevboxError (incl. BootstrapError subclass) and ValueError
+            # from validate_name. Let KeyboardInterrupt and other unexpected
+            # exceptions propagate so users can abort cleanly.
+            console.print(f"[red]✗[/red] {box}: {exc}")
+            failures.append((box, str(exc)))
+        except Exception as exc:
+            # For --all, an unexpected error on one box shouldn't abort the
+            # rest. Record it and keep going. Single-box invocations re-raise.
+            if not all_:
+                raise
+            console.print(f"[red]✗[/red] {box}: unexpected error: {exc}")
+            failures.append((box, f"unexpected error: {exc}"))
+
+    if not all_ and not failures:
+        # Single-box success — match create/rebuild and remind user how to connect.
+        console.print(f"  Connect: [cyan]ssh dx-{targets[0]}[/cyan]")
+
+    if failures:
+        n_fail = len(failures)
+        n_total = len(targets)
+        noun = "refresh" if n_fail == 1 else "refreshes"
+        console.print(f"\n[red]{n_fail} of {n_total} {noun} failed:[/red]")
+        for box, err in failures:
+            console.print(f"  [red]•[/red] {box}: {err}")
+        sys.exit(1)
+    elif all_:
+        n = len(targets)
+        noun = "devbox" if n == 1 else "devboxes"
+        console.print(f"\n[green]✓[/green] {n} {noun} refreshed")
 
 
 @cli.command()
