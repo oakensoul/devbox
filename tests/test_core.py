@@ -21,6 +21,7 @@ from devbox.core import (
     list_devboxes,
     nuke_devbox,
     rebuild_devbox,
+    refresh_devbox,
     sync_heartbeats,
     write_env_file,
 )
@@ -726,6 +727,146 @@ class TestRebuildDevbox:
 
         with pytest.raises(DevboxError, match="nuke failed to fully clean up"):
             rebuild_devbox("mybox", registry_path=registry_path)
+
+
+# ---------------------------------------------------------------------------
+# refresh_devbox
+# ---------------------------------------------------------------------------
+
+
+class TestRefreshDevbox:
+    def _setup(self, tmp_path: Path, **preset_overrides: Any) -> tuple[Path, Path]:
+        presets_dir = tmp_path / "presets"
+        presets_dir.mkdir()
+        _make_preset_file(presets_dir, "test-preset", **preset_overrides)
+        registry_path = tmp_path / "registry.json"
+        _make_registry(
+            registry_path,
+            [_entry("mybox", status=DevboxStatus.READY)],
+        )
+        return registry_path, presets_dir
+
+    def test_default_calls_refresh_dotfiles_only(
+        self, tmp_path: Path, mocker: MockerFixture
+    ) -> None:
+        registry_path, presets_dir = self._setup(
+            tmp_path, brew_extras=["jq"], npm_globals=["typescript"]
+        )
+        mock_refresh = mocker.patch("devbox.bootstrap.refresh_dotfiles")
+        mock_brew = mocker.patch("devbox.bootstrap.install_brew_extras")
+        mock_npm = mocker.patch("devbox.bootstrap.install_npm_globals")
+        mock_pip = mocker.patch("devbox.bootstrap.install_pip_globals")
+
+        refresh_devbox(
+            "mybox", registry_path=registry_path, presets_dir=presets_dir
+        )
+
+        mock_refresh.assert_called_once()
+        _, kwargs = mock_refresh.call_args
+        assert kwargs == {"with_brew": False, "with_globals": False}
+        mock_brew.assert_not_called()
+        mock_npm.assert_not_called()
+        mock_pip.assert_not_called()
+
+    def test_with_brew_runs_extras(
+        self, tmp_path: Path, mocker: MockerFixture
+    ) -> None:
+        registry_path, presets_dir = self._setup(tmp_path, brew_extras=["jq", "fd"])
+        mocker.patch("devbox.bootstrap.refresh_dotfiles")
+        mock_brew = mocker.patch("devbox.bootstrap.install_brew_extras")
+
+        refresh_devbox(
+            "mybox",
+            with_brew=True,
+            registry_path=registry_path,
+            presets_dir=presets_dir,
+        )
+
+        mock_brew.assert_called_once()
+        args = mock_brew.call_args[0]
+        assert args[1] == ["jq", "fd"]
+        assert args[2] == "dx-mybox"
+
+    def test_with_globals_runs_npm_and_pip(
+        self, tmp_path: Path, mocker: MockerFixture
+    ) -> None:
+        registry_path, presets_dir = self._setup(
+            tmp_path, npm_globals=["typescript"], pip_globals=["ruff"]
+        )
+        mocker.patch("devbox.bootstrap.refresh_dotfiles")
+        mock_npm = mocker.patch("devbox.bootstrap.install_npm_globals")
+        mock_pip = mocker.patch("devbox.bootstrap.install_pip_globals")
+
+        refresh_devbox(
+            "mybox",
+            with_globals=True,
+            registry_path=registry_path,
+            presets_dir=presets_dir,
+        )
+
+        mock_npm.assert_called_once()
+        mock_pip.assert_called_once()
+
+    def test_not_found_raises(self, tmp_path: Path) -> None:
+        registry_path = tmp_path / "registry.json"
+        _make_registry(registry_path, [])
+        with pytest.raises(DevboxError, match="not found"):
+            refresh_devbox("no-such", registry_path=registry_path)
+
+    def test_invalid_name_raises(self, tmp_path: Path) -> None:
+        registry_path = tmp_path / "registry.json"
+        _make_registry(registry_path, [])
+        with pytest.raises(ValueError, match="kebab-case"):
+            refresh_devbox("Bad_Name", registry_path=registry_path)
+
+    @pytest.mark.parametrize(
+        "status",
+        [DevboxStatus.CREATING, DevboxStatus.NUKING],
+    )
+    def test_non_ready_status_raises(
+        self, tmp_path: Path, status: DevboxStatus
+    ) -> None:
+        presets_dir = tmp_path / "presets"
+        presets_dir.mkdir()
+        _make_preset_file(presets_dir, "test-preset")
+        registry_path = tmp_path / "registry.json"
+        _make_registry(registry_path, [_entry("mybox", status=status)])
+        with pytest.raises(DevboxError, match="not ready"):
+            refresh_devbox(
+                "mybox", registry_path=registry_path, presets_dir=presets_dir
+            )
+
+    def test_with_brew_skips_install_when_no_extras(
+        self, tmp_path: Path, mocker: MockerFixture
+    ) -> None:
+        registry_path, presets_dir = self._setup(tmp_path, brew_extras=[])
+        mocker.patch("devbox.bootstrap.refresh_dotfiles")
+        mock_brew = mocker.patch("devbox.bootstrap.install_brew_extras")
+        refresh_devbox(
+            "mybox",
+            with_brew=True,
+            registry_path=registry_path,
+            presets_dir=presets_dir,
+        )
+        mock_brew.assert_not_called()
+
+    def test_refresh_dotfiles_failure_short_circuits(
+        self, tmp_path: Path, mocker: MockerFixture
+    ) -> None:
+        registry_path, presets_dir = self._setup(tmp_path, brew_extras=["jq"])
+        mocker.patch(
+            "devbox.bootstrap.refresh_dotfiles",
+            side_effect=DevboxError("ssh exploded"),
+        )
+        mock_brew = mocker.patch("devbox.bootstrap.install_brew_extras")
+        with pytest.raises(DevboxError, match="ssh exploded"):
+            refresh_devbox(
+                "mybox",
+                with_brew=True,
+                registry_path=registry_path,
+                presets_dir=presets_dir,
+            )
+        mock_brew.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

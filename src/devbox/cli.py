@@ -12,8 +12,15 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from devbox.core import create_devbox, list_devboxes, nuke_devbox, rebuild_devbox
+from devbox.core import (
+    create_devbox,
+    list_devboxes,
+    nuke_devbox,
+    rebuild_devbox,
+    refresh_devbox,
+)
 from devbox.exceptions import DevboxError
+from devbox.registry import DevboxStatus, load_registry
 
 console = Console(stderr=True)
 
@@ -80,6 +87,58 @@ def rebuild(name: str) -> None:
         console.print(f"  Connect: [cyan]ssh dx-{name}[/cyan]")
     except (DevboxError, ValueError) as exc:
         console.print(f"[red]✗[/red] {exc}")
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("name", required=False)
+@click.option(
+    "--all", "all_", is_flag=True, default=False, help="Refresh every registered devbox."
+)
+@click.option(
+    "--with-brew",
+    is_flag=True,
+    default=False,
+    help=(
+        "Also run brew bundle and reinstall preset brew_extras "
+        "(15-30 min/box; with --all this is serial)."
+    ),
+)
+@click.option(
+    "--with-globals", is_flag=True, default=False, help="Also reinstall npm/pip globals."
+)
+def refresh(name: str | None, all_: bool, with_brew: bool, with_globals: bool) -> None:
+    """Push current dotfiles/config to an existing devbox without destroying state."""
+    if all_ and name:
+        console.print("[red]✗[/red] Pass either NAME or --all, not both")
+        sys.exit(1)
+    if not all_ and not name:
+        console.print("[red]✗[/red] Pass a devbox NAME or --all")
+        sys.exit(1)
+
+    if all_:
+        entries = load_registry()
+        targets = [e.name for e in entries if e.status == DevboxStatus.READY]
+        if not targets:
+            console.print("[yellow]No ready devboxes to refresh[/yellow]")
+            return
+    else:
+        targets = [name]  # type: ignore[list-item]
+
+    failures: list[tuple[str, str]] = []
+    for box in targets:
+        try:
+            with console.status(f"[bold]Refreshing {box!r}..."):
+                refresh_devbox(box, with_brew=with_brew, with_globals=with_globals)
+            console.print(f"[green]✓[/green] {box}")
+        except (DevboxError, ValueError) as exc:
+            console.print(f"[red]✗[/red] {box}: {exc}")
+            failures.append((box, str(exc)))
+
+    if failures:
+        console.print(f"\n[red]{len(failures)} of {len(targets)} refresh(es) failed:[/red]")
+        for box, err in failures:
+            console.print(f"  [red]•[/red] {box}: {err}")
         sys.exit(1)
 
 

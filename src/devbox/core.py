@@ -462,6 +462,76 @@ def rebuild_devbox(
     return create_devbox(name, preset_name, registry_path, presets_dir)
 
 
+def refresh_devbox(
+    name: str,
+    *,
+    with_brew: bool = False,
+    with_globals: bool = False,
+    registry_path: Path | None = None,
+    presets_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Push current dotfiles/config to an existing devbox without destroying state.
+
+    Always runs ``loadout update`` over SSH. ``with_brew`` additionally
+    drops ``--skip-brew`` from the loadout invocation (running the loadout
+    Brewfile) AND re-runs the preset's ``brew_extras`` — these are different
+    sets, both expensive at the non-standard ``~/.homebrew`` prefix.
+    ``with_globals`` is analogous for ``npm_globals`` / ``pip_globals``.
+
+    Refuses to refresh devboxes that are not in ``READY`` state (e.g.
+    ``CREATING`` / ``NUKING``) to avoid racing in-flight bootstrap.
+
+    Returns the registry entry as a dict.
+    """
+    validate_name(name)
+    entry = find_entry(name, registry_path)
+    if entry is None:
+        raise DevboxError(f"Devbox {name!r} not found in registry")
+
+    if entry.status != DevboxStatus.READY:
+        raise DevboxError(
+            f"Devbox {name!r} is not ready (status: {entry.status.value}); "
+            f"refresh requires a fully-created devbox"
+        )
+
+    preset_obj = load_preset(entry.preset, presets_dir)
+    username = f"{DX_PREFIX}{name}"
+    home_dir = Path(f"/Users/{username}")
+
+    from devbox.bootstrap import (
+        install_brew_extras,
+        install_npm_globals,
+        install_pip_globals,
+        refresh_dotfiles,
+    )
+
+    if (with_brew or with_globals) and not preset_obj.loadout_orgs:
+        logger.warning(
+            "Preset %r has no loadout_orgs; loadout update is a no-op, "
+            "but preset brew_extras/globals will still be installed",
+            entry.preset,
+        )
+
+    refresh_dotfiles(
+        home_dir,
+        preset_obj,
+        username,
+        with_brew=with_brew,
+        with_globals=with_globals,
+    )
+
+    if with_brew and preset_obj.brew_extras:
+        install_brew_extras(home_dir, preset_obj.brew_extras, username)
+
+    if with_globals:
+        if preset_obj.npm_globals:
+            install_npm_globals(home_dir, preset_obj.npm_globals, username)
+        if preset_obj.pip_globals:
+            install_pip_globals(home_dir, preset_obj.pip_globals, username)
+
+    return entry.model_dump()
+
+
 _SAFE_USERNAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 

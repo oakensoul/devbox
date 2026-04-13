@@ -24,6 +24,11 @@ devbox list
 # Tear down and recreate
 devbox rebuild mybox
 
+# Push current dotfiles/preset config to an existing devbox (preserves state)
+devbox refresh mybox
+devbox refresh --all
+devbox refresh mybox --with-brew --with-globals  # also reinstall brew/npm/pip (slow)
+
 # Permanently destroy
 devbox nuke mybox
 ```
