@@ -384,8 +384,29 @@ def install_homebrew(home_dir: Path, username: str) -> None:
     )
 
 
-def install_brew_extras(home_dir: Path, packages: list[str], username: str) -> None:
+def _wrap_as_user(inner_cmd: str, username: str, ssh_base: list[str] | None) -> list[str]:
+    """Wrap *inner_cmd* so it runs as the devbox user.
+
+    When *ssh_base* is given, execute via SSH (no host sudo needed).
+    Otherwise, run locally via ``sudo -u <username> bash -c ...`` — used
+    during initial bootstrap before the devbox has SSH access set up.
+    """
+    if ssh_base is not None:
+        return [*ssh_base, inner_cmd]
+    return ["sudo", "-u", username, "bash", "-c", inner_cmd]
+
+
+def install_brew_extras(
+    home_dir: Path,
+    packages: list[str],
+    username: str,
+    *,
+    ssh_base: list[str] | None = None,
+) -> None:
     """Install extra Homebrew packages into the devbox user's per-devbox Homebrew.
+
+    Pass *ssh_base* to run via SSH instead of ``sudo -u`` (required for
+    ``devbox refresh`` in non-interactive shells).
 
     Raises :exc:`BootstrapError` on failure.
     """
@@ -399,19 +420,15 @@ def install_brew_extras(home_dir: Path, packages: list[str], username: str) -> N
     q_prefix = shlex.quote(str(brew_prefix))
     q_brew = shlex.quote(str(brew_bin))
     q_packages = " ".join(shlex.quote(p) for p in packages)
+    inner = (
+        f"export HOME={q_home} "
+        f"HOMEBREW_PREFIX={q_prefix} "
+        f"HOMEBREW_CELLAR={q_prefix}/Cellar "
+        f"HOMEBREW_REPOSITORY={q_prefix} "
+        f"&& {q_brew} install {q_packages}"
+    )
     _run_checked(
-        [
-            "sudo",
-            "-u",
-            username,
-            "bash",
-            "-c",
-            f"export HOME={q_home} "
-            f"HOMEBREW_PREFIX={q_prefix} "
-            f"HOMEBREW_CELLAR={q_prefix}/Cellar "
-            f"HOMEBREW_REPOSITORY={q_prefix} "
-            f"&& {q_brew} install {q_packages}",
-        ],
+        _wrap_as_user(inner, username, ssh_base),
         error_prefix="brew extras install",
         timeout=_BREW_TIMEOUT,
     )
@@ -421,8 +438,12 @@ def install_npm_globals(
     home_dir: Path,
     packages: list[str],
     username: str,
+    *,
+    ssh_base: list[str] | None = None,
 ) -> None:
     """Install global npm packages as the devbox user.
+
+    Pass *ssh_base* to run via SSH instead of ``sudo -u``.
 
     Raises :exc:`BootstrapError` on failure.
     """
@@ -434,16 +455,12 @@ def install_npm_globals(
     q_home = shlex.quote(str(home_dir))
     q_nvm = shlex.quote(str(nvm_dir))
     q_packages = " ".join(shlex.quote(p) for p in packages)
+    inner = (
+        f"export HOME={q_home} && export NVM_DIR={q_nvm} "
+        f"&& . {q_nvm}/nvm.sh && npm install -g {q_packages}"
+    )
     _run_checked(
-        [
-            "sudo",
-            "-u",
-            username,
-            "bash",
-            "-c",
-            f"export HOME={q_home} && export NVM_DIR={q_nvm} "
-            f"&& . {q_nvm}/nvm.sh && npm install -g {q_packages}",
-        ],
+        _wrap_as_user(inner, username, ssh_base),
         error_prefix="npm globals install",
         timeout=_TOOL_TIMEOUT,
     )
@@ -453,8 +470,12 @@ def install_pip_globals(
     home_dir: Path,
     packages: list[str],
     username: str,
+    *,
+    ssh_base: list[str] | None = None,
 ) -> None:
     """Install global pip packages as the devbox user.
+
+    Pass *ssh_base* to run via SSH instead of ``sudo -u``.
 
     Raises :exc:`BootstrapError` on failure.
     """
@@ -468,17 +489,13 @@ def install_pip_globals(
     q_pyenv_root = shlex.quote(str(pyenv_root))
     q_pyenv_bin = shlex.quote(str(pyenv_bin))
     q_packages = " ".join(shlex.quote(p) for p in packages)
+    inner = (
+        f"export HOME={q_home} && export PYENV_ROOT={q_pyenv_root} "
+        f'&& eval "$({q_pyenv_bin} init -)" '
+        f"&& pip install {q_packages}"
+    )
     _run_checked(
-        [
-            "sudo",
-            "-u",
-            username,
-            "bash",
-            "-c",
-            f"export HOME={q_home} && export PYENV_ROOT={q_pyenv_root} "
-            f'&& eval "$({q_pyenv_bin} init -)" '
-            f"&& pip install {q_packages}",
-        ],
+        _wrap_as_user(inner, username, ssh_base),
         error_prefix="pip globals install",
         timeout=_TOOL_TIMEOUT,
     )
