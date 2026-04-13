@@ -100,12 +100,19 @@ def rebuild(name: str) -> None:
     is_flag=True,
     default=False,
     help=(
-        "Also run brew bundle and reinstall preset brew_extras "
-        "(15-30 min/box; with --all this is serial)."
+        "Also reinstall brew packages: BOTH the loadout Brewfile AND the "
+        "preset's brew_extras (two different sets). Required to pick up preset "
+        "brew_extras changes. Slow: 15-30 min/box, serial under --all."
     ),
 )
 @click.option(
-    "--with-globals", is_flag=True, default=False, help="Also reinstall npm/pip globals."
+    "--with-globals",
+    is_flag=True,
+    default=False,
+    help=(
+        "Also reinstall npm/pip globals: BOTH the loadout globals AND the "
+        "preset's npm_globals/pip_globals. Required to pick up preset globals changes."
+    ),
 )
 def refresh(name: str | None, all_: bool, with_brew: bool, with_globals: bool) -> None:
     """Push current dotfiles/config to an existing devbox without destroying state."""
@@ -153,13 +160,22 @@ def refresh(name: str | None, all_: bool, with_brew: bool, with_globals: bool) -
             console.print(f"[red]✗[/red] {box}: unexpected error: {exc}")
             failures.append((box, f"unexpected error: {exc}"))
 
+    if not all_ and not failures:
+        # Single-box success — match create/rebuild and remind user how to connect.
+        console.print(f"  Connect: [cyan]ssh dx-{targets[0]}[/cyan]")
+
     if failures:
-        console.print(f"\n[red]{len(failures)} of {len(targets)} refresh(es) failed:[/red]")
+        n_fail = len(failures)
+        n_total = len(targets)
+        noun = "refresh" if n_fail == 1 else "refreshes"
+        console.print(f"\n[red]{n_fail} of {n_total} {noun} failed:[/red]")
         for box, err in failures:
             console.print(f"  [red]•[/red] {box}: {err}")
         sys.exit(1)
     elif all_:
-        console.print(f"\n[green]✓[/green] {len(targets)} devbox(es) refreshed")
+        n = len(targets)
+        noun = "devbox" if n == 1 else "devboxes"
+        console.print(f"\n[green]✓[/green] {n} {noun} refreshed")
 
 
 @cli.command()
