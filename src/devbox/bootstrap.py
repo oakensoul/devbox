@@ -90,6 +90,10 @@ def _resolve_loadout_bin() -> str:
 
 
 def _ssh_base(preset: Preset, username: str) -> list[str]:
+    """Return the SSH command prefix for connecting to a devbox as *username*.
+
+    Returns a fresh list each call so callers can safely splat/append.
+    """
     return [
         "ssh",
         "-o",

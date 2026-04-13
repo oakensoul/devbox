@@ -33,6 +33,20 @@ devbox refresh mybox --with-brew --with-globals  # also reinstall brew/npm/pip (
 devbox nuke mybox
 ```
 
+### `refresh` vs `rebuild`
+
+- **`refresh`** SSHes into the existing devbox and re-runs `loadout update`,
+  pulling the latest dotfiles and preset config. Shell history, uncommitted
+  work, and local files are preserved. Fast (~30s/box). Use this whenever
+  dotfiles or preset config has changed.
+- **`refresh --with-brew` / `--with-globals`** additionally reinstall the
+  preset's `brew_extras` / `npm_globals` / `pip_globals` and run the loadout
+  Brewfile. Slow (15-30 min/box) because the per-devbox `~/.homebrew` prefix
+  has no bottles.
+- **`rebuild`** nukes and recreates the devbox from scratch. Destroys all
+  in-devbox state. Use when bootstrap itself changed, or when the box is
+  irrecoverably broken.
+
 ## Presets
 
 Preset files live in `~/.dotfiles-private/devbox/presets/<name>.json` and

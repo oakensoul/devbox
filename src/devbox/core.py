@@ -488,10 +488,12 @@ def refresh_devbox(
     if entry is None:
         raise DevboxError(f"Devbox {name!r} not found in registry")
 
+    # Status check is best-effort: there's no registry lock, so a concurrent
+    # nuke/rebuild could race. SSH will fail cleanly in that case.
     if entry.status != DevboxStatus.READY:
         raise DevboxError(
-            f"Devbox {name!r} is not ready (status: {entry.status.value}); "
-            f"refresh requires a fully-created devbox"
+            f"Devbox {name!r} is not ready to refresh (status: {entry.status.value}). "
+            f"Wait for it to finish, or use 'devbox list' to check."
         )
 
     preset_obj = load_preset(entry.preset, presets_dir)

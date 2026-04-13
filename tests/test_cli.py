@@ -387,6 +387,35 @@ class TestRefreshCommand:
         result = runner.invoke(cli, ["refresh", "mybox"])
         assert result.exit_code == 1
 
+    def test_all_survives_unexpected_exception(
+        self, runner: CliRunner, mocker: MockerFixture
+    ) -> None:
+        from devbox.registry import DevboxStatus, RegistryEntry
+
+        entries = [
+            RegistryEntry(name="a", preset="p", created="2025-01-01", status=DevboxStatus.READY),
+            RegistryEntry(name="b", preset="p", created="2025-01-01", status=DevboxStatus.READY),
+        ]
+        mocker.patch("devbox.cli.load_registry", return_value=entries)
+        mocker.patch(
+            "devbox.cli.refresh_devbox",
+            side_effect=[OSError("ssh binary gone"), None],
+        )
+        mocker.patch("devbox.cli.console")
+        result = runner.invoke(cli, ["refresh", "--all"])
+        assert result.exit_code == 1  # one failed, but loop continued
+
+    def test_single_box_unexpected_exception_propagates(
+        self, runner: CliRunner, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "devbox.cli.refresh_devbox", side_effect=OSError("ssh binary gone")
+        )
+        mocker.patch("devbox.cli.console")
+        result = runner.invoke(cli, ["refresh", "mybox"])
+        assert result.exit_code != 0
+        assert isinstance(result.exception, OSError)
+
     def test_all_with_empty_registry_exits_zero(
         self, runner: CliRunner, mocker: MockerFixture
     ) -> None:

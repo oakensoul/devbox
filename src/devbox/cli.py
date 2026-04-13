@@ -123,23 +123,43 @@ def refresh(name: str | None, all_: bool, with_brew: bool, with_globals: bool) -
             console.print("[yellow]No ready devboxes to refresh[/yellow]")
             return
     else:
-        targets = [name]  # type: ignore[list-item]
+        # name is non-None — guarded by the "Pass a devbox NAME or --all" check above.
+        targets = [name] if name is not None else []
+
+    scope_parts = ["dotfiles"]
+    if with_brew:
+        scope_parts.append("brew")
+    if with_globals:
+        scope_parts.append("globals")
+    scope = ", ".join(scope_parts)
 
     failures: list[tuple[str, str]] = []
     for box in targets:
         try:
-            with console.status(f"[bold]Refreshing {box!r}..."):
+            with console.status(f"[bold]Refreshing {box!r} ({scope})..."):
                 refresh_devbox(box, with_brew=with_brew, with_globals=with_globals)
-            console.print(f"[green]✓[/green] {box}")
+            console.print(f"[green]✓[/green] {box} refreshed ({scope})")
         except (DevboxError, ValueError) as exc:
+            # Catch DevboxError (incl. BootstrapError subclass) and ValueError
+            # from validate_name. Let KeyboardInterrupt and other unexpected
+            # exceptions propagate so users can abort cleanly.
             console.print(f"[red]✗[/red] {box}: {exc}")
             failures.append((box, str(exc)))
+        except Exception as exc:
+            # For --all, an unexpected error on one box shouldn't abort the
+            # rest. Record it and keep going. Single-box invocations re-raise.
+            if not all_:
+                raise
+            console.print(f"[red]✗[/red] {box}: unexpected error: {exc}")
+            failures.append((box, f"unexpected error: {exc}"))
 
     if failures:
         console.print(f"\n[red]{len(failures)} of {len(targets)} refresh(es) failed:[/red]")
         for box, err in failures:
             console.print(f"  [red]•[/red] {box}: {err}")
         sys.exit(1)
+    elif all_:
+        console.print(f"\n[green]✓[/green] {len(targets)} devbox(es) refreshed")
 
 
 @cli.command()
