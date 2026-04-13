@@ -341,14 +341,14 @@ class TestRefreshCommand:
         assert result.exit_code == 1
 
     def test_all_iterates_ready_devboxes(self, runner: CliRunner, mocker: MockerFixture) -> None:
-        from devbox.registry import DevboxStatus, RegistryEntry
+        from devbox.registry import DevboxStatus, Registry, RegistryEntry
 
         entries = [
             RegistryEntry(name="a", preset="p", created="2025-01-01", status=DevboxStatus.READY),
             RegistryEntry(name="b", preset="p", created="2025-01-01", status=DevboxStatus.READY),
             RegistryEntry(name="c", preset="p", created="2025-01-01", status=DevboxStatus.NUKING),
         ]
-        mocker.patch("devbox.cli.load_registry", return_value=entries)
+        mocker.patch("devbox.cli.load_registry", return_value=Registry(devboxes=entries))
         mock_refresh = mocker.patch("devbox.cli.refresh_devbox")
         mocker.patch("devbox.cli.console")
 
@@ -362,13 +362,13 @@ class TestRefreshCommand:
     def test_all_collects_failures_and_continues(
         self, runner: CliRunner, mocker: MockerFixture
     ) -> None:
-        from devbox.registry import DevboxStatus, RegistryEntry
+        from devbox.registry import DevboxStatus, Registry, RegistryEntry
 
         entries = [
             RegistryEntry(name="a", preset="p", created="2025-01-01", status=DevboxStatus.READY),
             RegistryEntry(name="b", preset="p", created="2025-01-01", status=DevboxStatus.READY),
         ]
-        mocker.patch("devbox.cli.load_registry", return_value=entries)
+        mocker.patch("devbox.cli.load_registry", return_value=Registry(devboxes=entries))
         mocker.patch(
             "devbox.cli.refresh_devbox",
             side_effect=[DevboxError("boom"), None],
@@ -388,13 +388,13 @@ class TestRefreshCommand:
     def test_all_survives_unexpected_exception(
         self, runner: CliRunner, mocker: MockerFixture
     ) -> None:
-        from devbox.registry import DevboxStatus, RegistryEntry
+        from devbox.registry import DevboxStatus, Registry, RegistryEntry
 
         entries = [
             RegistryEntry(name="a", preset="p", created="2025-01-01", status=DevboxStatus.READY),
             RegistryEntry(name="b", preset="p", created="2025-01-01", status=DevboxStatus.READY),
         ]
-        mocker.patch("devbox.cli.load_registry", return_value=entries)
+        mocker.patch("devbox.cli.load_registry", return_value=Registry(devboxes=entries))
         mocker.patch(
             "devbox.cli.refresh_devbox",
             side_effect=[OSError("ssh binary gone"), None],
@@ -415,7 +415,9 @@ class TestRefreshCommand:
     def test_all_with_empty_registry_exits_zero(
         self, runner: CliRunner, mocker: MockerFixture
     ) -> None:
-        mocker.patch("devbox.cli.load_registry", return_value=[])
+        from devbox.registry import Registry
+
+        mocker.patch("devbox.cli.load_registry", return_value=Registry(devboxes=[]))
         mock_refresh = mocker.patch("devbox.cli.refresh_devbox")
         mocker.patch("devbox.cli.console")
         result = runner.invoke(cli, ["refresh", "--all"])

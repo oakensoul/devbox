@@ -122,8 +122,8 @@ def refresh(name: str | None, all_: bool, with_brew: bool, with_globals: bool) -
         sys.exit(1)
 
     if all_:
-        entries = load_registry()
-        targets = [e.name for e in entries if e.status == DevboxStatus.READY]
+        registry = load_registry()
+        targets = [e.name for e in registry.devboxes if e.status == DevboxStatus.READY]
         if not targets:
             console.print("[yellow]No ready devboxes to refresh[/yellow]")
             return
