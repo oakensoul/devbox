@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from devbox import iterm2, macos, onepassword, ssh, sshd, sudoers
-from devbox.auth import inject_auth
+from devbox.auth import inject_auth, log_sso_hints
 from devbox.bootstrap import bootstrap_user
 from devbox.exceptions import DevboxError
 from devbox.health import format_last_seen, get_health, read_heartbeat
@@ -213,15 +213,21 @@ def create_devbox(
             ssh.populate_authorized_keys(home_dir, target_user=username)
 
             step("Resolving environment variables")
-            if preset_obj.env_vars:
-                resolved = onepassword.resolve_env_vars(preset_obj.env_vars)
+            resolved = (
+                onepassword.resolve_env_vars(preset_obj.env_vars) if preset_obj.env_vars else {}
+            )
+            if preset_obj.aws is not None:
+                resolved["AWS_PROFILE"] = preset_obj.aws.default_profile
+            if resolved:
                 write_env_file(home_dir, resolved, target_user=username)
 
             step("Injecting auth credentials")
+            sso_profiles: list[str] = []
             try:
-                inject_auth(home_dir, preset_obj, username)
+                sso_profiles = inject_auth(home_dir, preset_obj, username)
             except DevboxError as exc:
                 logger.warning("Auth injection failed (non-fatal): %s", exc)
+            log_sso_hints(sso_profiles)
 
             step("Writing .zshrc")
             try:
@@ -505,6 +511,8 @@ def refresh_devbox(
         install_brew_extras,
         install_npm_globals,
         install_pip_globals,
+        refresh_aws_config,
+        refresh_devbox_env,
         refresh_dotfiles,
         refresh_shell_env,
     )
@@ -519,7 +527,8 @@ def refresh_devbox(
     # Push shell env files first so PATH is correct before loadout update
     # runs any hooks that shell out to brew-installed tools.
     refresh_shell_env(home_dir, preset_obj, username)
-
+    refresh_devbox_env(home_dir, preset_obj, username)
+    log_sso_hints(refresh_aws_config(home_dir, preset_obj, username))
     refresh_dotfiles(home_dir, preset_obj, username)
 
     # Run install steps via SSH as the devbox user — avoids host sudo so

@@ -13,8 +13,11 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from devbox.exceptions import BootstrapError
+from devbox import onepassword
+from devbox.auth import render_aws_files
+from devbox.exceptions import AuthError, BootstrapError, OnePasswordError
 from devbox.presets import Preset
+from devbox.utils import shell_escape
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +132,96 @@ def refresh_shell_env(home_dir: Path, preset: Preset, username: str) -> None:
             error_prefix=f"write ~{filename}",
             timeout=10,
         )
+
+
+def refresh_aws_config(home_dir: Path, preset: Preset, username: str) -> list[str]:
+    """Overwrite ``~/.aws/config`` and ``~/.aws/credentials`` on an existing devbox.
+
+    Resolves ``op://`` references on the host and pushes the rendered files
+    over SSH, then applies 0700/0600 perms. No-op if ``preset.aws`` is unset.
+
+    Returns the list of SSO profile names present (for post-refresh hint).
+    Raises :exc:`BootstrapError` on SSH failure.
+    """
+    _validate_username(username)
+    if preset.aws is None:
+        return []
+
+    try:
+        rendered = render_aws_files(preset)
+    except AuthError as exc:
+        raise BootstrapError(f"refresh AWS config: {exc}") from exc
+
+    ssh_base = build_ssh_base(preset, username)
+
+    _run_checked(
+        [*ssh_base, "mkdir -p ~/.aws && chmod 0700 ~/.aws"],
+        error_prefix="create ~/.aws",
+        timeout=10,
+    )
+
+    files: list[tuple[str, str]] = [("/.aws/config", rendered.config)]
+    if rendered.credentials:
+        files.append(("/.aws/credentials", rendered.credentials))
+
+    for filename, content in files:
+        # Heredoc delimiter is single-quoted so the remote shell does not
+        # expand $/backticks. All input fields are regex-bounded with no
+        # newlines, so the delimiter can't appear inside content.
+        _run_checked(
+            [
+                *ssh_base,
+                f"cat > ~{filename} << 'DEVBOX_AWS_EOF'\n"
+                f"{content}DEVBOX_AWS_EOF\n"
+                f"chmod 0600 ~{filename}",
+            ],
+            error_prefix=f"write ~{filename}",
+            timeout=10,
+        )
+
+    return rendered.sso_profiles
+
+
+def refresh_devbox_env(home_dir: Path, preset: Preset, username: str) -> None:
+    """Push ``~/.devbox-env`` to an existing devbox over SSH.
+
+    Re-resolves ``op://`` refs in ``preset.env_vars`` on the host and
+    includes ``AWS_PROFILE`` when ``preset.aws`` is set. Overwrites the
+    file wholesale — preset is the source of truth.
+
+    Content is base64-encoded over the wire so arbitrary 1Password secret
+    values (which may contain newlines or shell metacharacters) can't break
+    out of the remote write.
+
+    Raises :exc:`BootstrapError` on failure.
+    """
+    import base64
+
+    _validate_username(username)
+
+    resolved: dict[str, str] = {}
+    if preset.env_vars:
+        try:
+            resolved = onepassword.resolve_env_vars(preset.env_vars)
+        except OnePasswordError as exc:
+            raise BootstrapError(f"refresh env: {exc}") from exc
+    if preset.aws is not None:
+        resolved["AWS_PROFILE"] = preset.aws.default_profile
+
+    if not resolved:
+        return
+
+    lines = "\n".join(f"export {k}={shell_escape(v)}" for k, v in resolved.items()) + "\n"
+    payload = base64.b64encode(lines.encode("utf-8")).decode("ascii")
+    ssh_base = build_ssh_base(preset, username)
+    _run_checked(
+        [
+            *ssh_base,
+            f"echo {payload} | base64 -d > ~/.devbox-env && chmod 0600 ~/.devbox-env",
+        ],
+        error_prefix="write ~/.devbox-env",
+        timeout=10,
+    )
 
 
 def refresh_dotfiles(
