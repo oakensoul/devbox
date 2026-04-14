@@ -735,6 +735,10 @@ class TestRebuildDevbox:
 
 
 class TestRefreshDevbox:
+    @pytest.fixture(autouse=True)
+    def _mock_shell_env(self, mocker: MockerFixture) -> Any:
+        return mocker.patch("devbox.bootstrap.refresh_shell_env")
+
     def _setup(self, tmp_path: Path, **preset_overrides: Any) -> tuple[Path, Path]:
         presets_dir = tmp_path / "presets"
         presets_dir.mkdir()
@@ -771,6 +775,15 @@ class TestRefreshDevbox:
         # Globals are opt-in via --with-globals.
         mock_npm.assert_not_called()
         mock_pip.assert_not_called()
+
+    def test_pushes_shell_env(
+        self, tmp_path: Path, mocker: MockerFixture, _mock_shell_env: Any
+    ) -> None:
+        registry_path, presets_dir = self._setup(tmp_path)
+        mocker.patch("devbox.bootstrap.refresh_dotfiles")
+        refresh_devbox("mybox", registry_path=registry_path, presets_dir=presets_dir)
+        # .zprofile fix for path_helper shadowing must land on every refresh.
+        _mock_shell_env.assert_called_once()
 
     def test_with_globals_runs_npm_and_pip(self, tmp_path: Path, mocker: MockerFixture) -> None:
         registry_path, presets_dir = self._setup(

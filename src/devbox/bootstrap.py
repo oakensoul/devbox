@@ -104,6 +104,32 @@ def build_ssh_base(preset: Preset, username: str) -> list[str]:
     ]
 
 
+def refresh_shell_env(home_dir: Path, preset: Preset, username: str) -> None:
+    """Push .zshenv and .zprofile to an existing devbox over SSH.
+
+    Ensures PATH is correct for interactive login shells — without
+    .zprofile, macOS ``path_helper`` leaves the parent's
+    ``/opt/homebrew/bin`` ahead of the devbox's per-user
+    ``~/.homebrew/bin``, so parent binaries shadow devbox installs.
+
+    Raises :exc:`BootstrapError` on failure.
+    """
+    from devbox.zshrc import ZPROFILE_CONTENT, ZSHENV_CONTENT
+
+    _validate_username(username)
+    ssh_base = build_ssh_base(preset, username)
+    for filename, content in (("/.zshenv", ZSHENV_CONTENT), ("/.zprofile", ZPROFILE_CONTENT)):
+        _run_checked(
+            [
+                *ssh_base,
+                f"cat > ~{filename} << 'DEVBOX_SHELL_ENV_EOF'\n{content}DEVBOX_SHELL_ENV_EOF\n"
+                f"&& chmod 0644 ~{filename}",
+            ],
+            error_prefix=f"write ~{filename}",
+            timeout=10,
+        )
+
+
 def refresh_dotfiles(
     home_dir: Path,
     preset: Preset,

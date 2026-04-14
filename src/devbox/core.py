@@ -506,6 +506,7 @@ def refresh_devbox(
         install_npm_globals,
         install_pip_globals,
         refresh_dotfiles,
+        refresh_shell_env,
     )
 
     if not preset_obj.loadout_orgs and (preset_obj.brew_extras or with_globals):
@@ -514,6 +515,10 @@ def refresh_devbox(
             "but preset brew_extras/globals will still be installed",
             entry.preset,
         )
+
+    # Push shell env files first so PATH is correct before loadout update
+    # runs any hooks that shell out to brew-installed tools.
+    refresh_shell_env(home_dir, preset_obj, username)
 
     refresh_dotfiles(home_dir, preset_obj, username)
 
