@@ -89,7 +89,7 @@ def _resolve_loadout_bin() -> str:
     return loadout_bin
 
 
-def _ssh_base(preset: Preset, username: str) -> list[str]:
+def build_ssh_base(preset: Preset, username: str) -> list[str]:
     """Return the SSH command prefix for connecting to a devbox as *username*.
 
     Returns a fresh list each call so callers can safely splat/append.
@@ -104,15 +104,44 @@ def _ssh_base(preset: Preset, username: str) -> list[str]:
     ]
 
 
+def refresh_shell_env(home_dir: Path, preset: Preset, username: str) -> None:
+    """Push .zshenv and .zprofile to an existing devbox over SSH.
+
+    Ensures PATH is correct for interactive login shells — without
+    .zprofile, macOS ``path_helper`` leaves the parent's
+    ``/opt/homebrew/bin`` ahead of the devbox's per-user
+    ``~/.homebrew/bin``, so parent binaries shadow devbox installs.
+
+    Raises :exc:`BootstrapError` on failure.
+    """
+    from devbox.zshrc import ZPROFILE_CONTENT, ZSHENV_CONTENT
+
+    _validate_username(username)
+    ssh_base = build_ssh_base(preset, username)
+    for filename, content in (("/.zshenv", ZSHENV_CONTENT), ("/.zprofile", ZPROFILE_CONTENT)):
+        _run_checked(
+            [
+                *ssh_base,
+                f"cat > ~{filename} << 'DEVBOX_SHELL_ENV_EOF'\n"
+                f"{content}DEVBOX_SHELL_ENV_EOF\n"
+                f"chmod 0644 ~{filename}",
+            ],
+            error_prefix=f"write ~{filename}",
+            timeout=10,
+        )
+
+
 def refresh_dotfiles(
     home_dir: Path,
     preset: Preset,
     username: str,
-    *,
-    with_brew: bool = False,
-    with_globals: bool = False,
 ) -> None:
-    """Run ``loadout update`` over SSH to refresh dotfiles on an existing devbox.
+    """Run ``loadout update --skip-brew --skip-globals`` over SSH to refresh dotfiles.
+
+    Always skips brew bundle and globals — preset-level brew_extras and
+    globals are installed separately by the caller, and the loadout
+    Brewfile is only run on rebuild (compiles from source at the
+    non-standard ``~/.homebrew`` prefix, 30+ min).
 
     Skips if no loadout_orgs are configured in the preset.
     Raises :exc:`BootstrapError` on failure.
@@ -122,20 +151,8 @@ def refresh_dotfiles(
         return
 
     loadout_bin = _resolve_loadout_bin()
-    ssh_base = _ssh_base(preset, username)
+    ssh_base = build_ssh_base(preset, username)
     q_home = shlex.quote(str(home_dir))
-
-    flags = []
-    if not with_brew:
-        flags.append("--skip-brew")
-    if not with_globals:
-        flags.append("--skip-globals")
-    flag_str = (" " + " ".join(flags)) if flags else ""
-
-    # Brew bundle at the non-standard ~/.homebrew prefix has no bottles, so
-    # it compiles from source and can take 15-30 min — hence the longer
-    # timeout when --with-brew is requested.
-    timeout = 1800 if with_brew else 180
 
     _run_checked(
         [
@@ -144,10 +161,10 @@ def refresh_dotfiles(
             f"HOMEBREW_CELLAR={q_home}/.homebrew/Cellar "
             f"HOMEBREW_REPOSITORY={q_home}/.homebrew "
             f"PATH={q_home}/.homebrew/bin:{q_home}/.homebrew/sbin:$PATH "
-            f"&& {shlex.quote(loadout_bin)} update{flag_str}",
+            f"&& {shlex.quote(loadout_bin)} update --skip-brew --skip-globals",
         ],
         error_prefix="loadout update",
-        timeout=timeout,
+        timeout=180,
     )
 
 
@@ -163,7 +180,7 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
 
     # Resolve loadout bin early so we fail fast before slow clone steps.
     _resolve_loadout_bin()
-    ssh_base = _ssh_base(preset, username)
+    ssh_base = build_ssh_base(preset, username)
 
     # Clone dotfiles repos via SSH (private repos need SSH auth).
     acct = preset.github_account
@@ -384,8 +401,32 @@ def install_homebrew(home_dir: Path, username: str) -> None:
     )
 
 
-def install_brew_extras(home_dir: Path, packages: list[str], username: str) -> None:
+def _wrap_as_user(inner_cmd: str, username: str, ssh_base: list[str] | None) -> list[str]:
+    """Wrap *inner_cmd* so it runs as the devbox user.
+
+    When *ssh_base* is given, execute via SSH (no host sudo needed). The
+    inner command is wrapped as ``bash -c <quoted>`` on the remote so
+    execution parity with the ``sudo -u`` path doesn't depend on the
+    devbox user's login shell. Otherwise, run locally via
+    ``sudo -u <username> bash -c ...`` — used during initial bootstrap
+    before the devbox has SSH access set up.
+    """
+    if ssh_base is not None:
+        return [*ssh_base, f"bash -c {shlex.quote(inner_cmd)}"]
+    return ["sudo", "-u", username, "bash", "-c", inner_cmd]
+
+
+def install_brew_extras(
+    home_dir: Path,
+    packages: list[str],
+    username: str,
+    *,
+    ssh_base: list[str] | None = None,
+) -> None:
     """Install extra Homebrew packages into the devbox user's per-devbox Homebrew.
+
+    Pass *ssh_base* to run via SSH instead of ``sudo -u`` (required for
+    ``devbox refresh`` in non-interactive shells).
 
     Raises :exc:`BootstrapError` on failure.
     """
@@ -399,19 +440,15 @@ def install_brew_extras(home_dir: Path, packages: list[str], username: str) -> N
     q_prefix = shlex.quote(str(brew_prefix))
     q_brew = shlex.quote(str(brew_bin))
     q_packages = " ".join(shlex.quote(p) for p in packages)
+    inner = (
+        f"export HOME={q_home} "
+        f"HOMEBREW_PREFIX={q_prefix} "
+        f"HOMEBREW_CELLAR={q_prefix}/Cellar "
+        f"HOMEBREW_REPOSITORY={q_prefix} "
+        f"&& {q_brew} install {q_packages}"
+    )
     _run_checked(
-        [
-            "sudo",
-            "-u",
-            username,
-            "bash",
-            "-c",
-            f"export HOME={q_home} "
-            f"HOMEBREW_PREFIX={q_prefix} "
-            f"HOMEBREW_CELLAR={q_prefix}/Cellar "
-            f"HOMEBREW_REPOSITORY={q_prefix} "
-            f"&& {q_brew} install {q_packages}",
-        ],
+        _wrap_as_user(inner, username, ssh_base),
         error_prefix="brew extras install",
         timeout=_BREW_TIMEOUT,
     )
@@ -421,8 +458,12 @@ def install_npm_globals(
     home_dir: Path,
     packages: list[str],
     username: str,
+    *,
+    ssh_base: list[str] | None = None,
 ) -> None:
     """Install global npm packages as the devbox user.
+
+    Pass *ssh_base* to run via SSH instead of ``sudo -u``.
 
     Raises :exc:`BootstrapError` on failure.
     """
@@ -434,16 +475,12 @@ def install_npm_globals(
     q_home = shlex.quote(str(home_dir))
     q_nvm = shlex.quote(str(nvm_dir))
     q_packages = " ".join(shlex.quote(p) for p in packages)
+    inner = (
+        f"export HOME={q_home} && export NVM_DIR={q_nvm} "
+        f"&& . {q_nvm}/nvm.sh && npm install -g {q_packages}"
+    )
     _run_checked(
-        [
-            "sudo",
-            "-u",
-            username,
-            "bash",
-            "-c",
-            f"export HOME={q_home} && export NVM_DIR={q_nvm} "
-            f"&& . {q_nvm}/nvm.sh && npm install -g {q_packages}",
-        ],
+        _wrap_as_user(inner, username, ssh_base),
         error_prefix="npm globals install",
         timeout=_TOOL_TIMEOUT,
     )
@@ -453,8 +490,12 @@ def install_pip_globals(
     home_dir: Path,
     packages: list[str],
     username: str,
+    *,
+    ssh_base: list[str] | None = None,
 ) -> None:
     """Install global pip packages as the devbox user.
+
+    Pass *ssh_base* to run via SSH instead of ``sudo -u``.
 
     Raises :exc:`BootstrapError` on failure.
     """
@@ -468,17 +509,13 @@ def install_pip_globals(
     q_pyenv_root = shlex.quote(str(pyenv_root))
     q_pyenv_bin = shlex.quote(str(pyenv_bin))
     q_packages = " ".join(shlex.quote(p) for p in packages)
+    inner = (
+        f"export HOME={q_home} && export PYENV_ROOT={q_pyenv_root} "
+        f'&& eval "$({q_pyenv_bin} init -)" '
+        f"&& pip install {q_packages}"
+    )
     _run_checked(
-        [
-            "sudo",
-            "-u",
-            username,
-            "bash",
-            "-c",
-            f"export HOME={q_home} && export PYENV_ROOT={q_pyenv_root} "
-            f'&& eval "$({q_pyenv_bin} init -)" '
-            f"&& pip install {q_packages}",
-        ],
+        _wrap_as_user(inner, username, ssh_base),
         error_prefix="pip globals install",
         timeout=_TOOL_TIMEOUT,
     )
@@ -689,9 +726,16 @@ def _run_checked(
 
     if result.returncode != 0:
         stderr_tail = (result.stderr or "").strip()[-500:]
+        # SSH returns 255 for any connection-layer failure (auth, host key,
+        # network). Flag it so operators don't confuse it with a package
+        # install failure.
+        rc_label = (
+            "SSH connection failure (exit 255)"
+            if result.returncode == 255 and cmd and cmd[0] == "ssh"
+            else f"exit code {result.returncode}"
+        )
         raise BootstrapError(
-            f"{error_prefix}: exit code {result.returncode}"
-            + (f" — {stderr_tail}" if stderr_tail else "")
+            f"{error_prefix}: {rc_label}" + (f" — {stderr_tail}" if stderr_tail else "")
         )
 
     return result

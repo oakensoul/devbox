@@ -465,18 +465,18 @@ def rebuild_devbox(
 def refresh_devbox(
     name: str,
     *,
-    with_brew: bool = False,
     with_globals: bool = False,
     registry_path: Path | None = None,
     presets_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Push current dotfiles/config to an existing devbox without destroying state.
 
-    Always runs ``loadout update`` over SSH. ``with_brew`` additionally
-    drops ``--skip-brew`` from the loadout invocation (running the loadout
-    Brewfile) AND re-runs the preset's ``brew_extras`` — these are different
-    sets, both expensive at the non-standard ``~/.homebrew`` prefix.
-    ``with_globals`` is analogous for ``npm_globals`` / ``pip_globals``.
+    Runs ``loadout update --skip-brew --skip-globals`` over SSH, then
+    installs the preset's ``brew_extras`` as the devbox user. The loadout
+    Brewfile is never re-run here — it's a 30+ minute compile at the
+    non-standard ``~/.homebrew`` prefix, so if it needs to change, rebuild
+    the devbox instead. ``with_globals`` additionally reinstalls the
+    preset's ``npm_globals`` and ``pip_globals``.
 
     Refuses to refresh devboxes that are not in ``READY`` state (e.g.
     ``CREATING`` / ``NUKING``) to avoid racing in-flight bootstrap.
@@ -501,35 +501,39 @@ def refresh_devbox(
     home_dir = Path(f"/Users/{username}")
 
     from devbox.bootstrap import (
+        build_ssh_base,
         install_brew_extras,
         install_npm_globals,
         install_pip_globals,
         refresh_dotfiles,
+        refresh_shell_env,
     )
 
-    if (with_brew or with_globals) and not preset_obj.loadout_orgs:
+    if not preset_obj.loadout_orgs and (preset_obj.brew_extras or with_globals):
         logger.warning(
             "Preset %r has no loadout_orgs; loadout update is a no-op, "
             "but preset brew_extras/globals will still be installed",
             entry.preset,
         )
 
-    refresh_dotfiles(
-        home_dir,
-        preset_obj,
-        username,
-        with_brew=with_brew,
-        with_globals=with_globals,
-    )
+    # Push shell env files first so PATH is correct before loadout update
+    # runs any hooks that shell out to brew-installed tools.
+    refresh_shell_env(home_dir, preset_obj, username)
 
-    if with_brew and preset_obj.brew_extras:
-        install_brew_extras(home_dir, preset_obj.brew_extras, username)
+    refresh_dotfiles(home_dir, preset_obj, username)
+
+    # Run install steps via SSH as the devbox user — avoids host sudo so
+    # refresh works in non-interactive shells.
+    ssh_base = build_ssh_base(preset_obj, username)
+
+    if preset_obj.brew_extras:
+        install_brew_extras(home_dir, preset_obj.brew_extras, username, ssh_base=ssh_base)
 
     if with_globals:
         if preset_obj.npm_globals:
-            install_npm_globals(home_dir, preset_obj.npm_globals, username)
+            install_npm_globals(home_dir, preset_obj.npm_globals, username, ssh_base=ssh_base)
         if preset_obj.pip_globals:
-            install_pip_globals(home_dir, preset_obj.pip_globals, username)
+            install_pip_globals(home_dir, preset_obj.pip_globals, username, ssh_base=ssh_base)
 
     return entry.model_dump()
 

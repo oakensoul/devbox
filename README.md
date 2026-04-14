@@ -27,7 +27,7 @@ devbox rebuild mybox
 # Push current dotfiles/preset config to an existing devbox (preserves state)
 devbox refresh mybox
 devbox refresh --all
-devbox refresh mybox --with-brew --with-globals  # also reinstall brew/npm/pip (slow)
+devbox refresh mybox --with-globals  # also reinstall npm/pip globals
 
 # Permanently destroy
 devbox nuke mybox
@@ -35,19 +35,20 @@ devbox nuke mybox
 
 ### `refresh` vs `rebuild`
 
-- **`refresh`** SSHes into the existing devbox and re-runs `loadout update`,
-  pulling the latest dotfiles. Shell history, uncommitted work, and local
-  files are preserved. Fast (~30s/box). The devbox must be in `ready` state
-  (run `devbox list` to check); refreshing a `creating`/`nuking` box is
-  refused.
-- **Edited a preset?** Plain `refresh` is enough for *dotfile* preset fields
-  (loadout orgs, env vars, etc.). To pick up changes to `brew_extras`, run
-  `refresh --with-brew`. For `npm_globals`/`pip_globals`, use
-  `refresh --with-globals`. These are slow (15-30 min/box) because the
-  per-devbox `~/.homebrew` prefix has no bottles and compiles from source.
+- **`refresh`** SSHes into the existing devbox, re-runs `loadout update`
+  to pull the latest dotfiles, and reinstalls the preset's `brew_extras`.
+  Shell history, uncommitted work, and local files are preserved. The
+  devbox must be in `ready` state (run `devbox list` to check);
+  refreshing a `creating`/`nuking` box is refused.
+- **Edited a preset?** Plain `refresh` picks up dotfile-level changes
+  (loadout orgs, env vars) and `brew_extras` automatically. For
+  `npm_globals` / `pip_globals`, pass `--with-globals`. Changes to the
+  loadout Brewfile itself aren't picked up by refresh — `rebuild` the
+  devbox for that (the per-devbox `~/.homebrew` prefix has no bottles and
+  compiles from source, 30+ min).
 - **`rebuild`** nukes and recreates the devbox from scratch. Destroys all
-  in-devbox state. Use when bootstrap itself changed, or when the box is
-  irrecoverably broken.
+  in-devbox state. Use when bootstrap itself changed, the loadout
+  Brewfile changed, or the box is irrecoverably broken.
 
 ## Presets
 

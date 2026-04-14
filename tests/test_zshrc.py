@@ -124,6 +124,19 @@ class TestWriteZshrc:
         mode = os.stat(tmp_path / ".zshenv").st_mode & 0o777
         assert mode == 0o644
 
+    def test_creates_zprofile_with_brew_shellenv(
+        self, tmp_path: Path, mocker: MockerFixture
+    ) -> None:
+        mocker.patch("devbox.zshrc.chown_path")
+        write_zshrc(tmp_path, "my-dev", "dx-my-dev")
+        zprofile = (tmp_path / ".zprofile").read_text(encoding="utf-8")
+        # Must eval brew shellenv to re-prepend ~/.homebrew after path_helper
+        # runs in /etc/zprofile — otherwise parent's /opt/homebrew shadows it.
+        assert "brew shellenv" in zprofile
+        assert "$HOME/.homebrew/bin/brew" in zprofile
+        mode = os.stat(tmp_path / ".zprofile").st_mode & 0o777
+        assert mode == 0o644
+
     def test_chown_called_with_correct_args(self, tmp_path: Path, mocker: MockerFixture) -> None:
         mock_chown = mocker.patch("devbox.zshrc.chown_path")
         write_zshrc(tmp_path, "my-dev", "dx-my-dev")

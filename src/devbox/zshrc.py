@@ -18,6 +18,37 @@ HEARTBEAT_HOOK = (
 
 ENV_SOURCE_LINE = "# devbox environment\n[ -f ~/.devbox-env ] && source ~/.devbox-env"
 
+ZSHENV_CONTENT = (
+    "# devbox: per-devbox Homebrew environment\n"
+    'export HOMEBREW_PREFIX="$HOME/.homebrew"\n'
+    'export HOMEBREW_CELLAR="$HOME/.homebrew/Cellar"\n'
+    'export HOMEBREW_REPOSITORY="$HOME/.homebrew"\n'
+    'export PATH="$HOME/.homebrew/bin:$HOME/.homebrew/sbin:$PATH"\n'
+    'export MANPATH="$HOME/.homebrew/share/man${MANPATH+:$MANPATH}:"\n'
+    'export INFOPATH="$HOME/.homebrew/share/info:${INFOPATH:-}"\n'
+    'fpath=("$HOME/.homebrew/share/zsh/site-functions" $^fpath(-/N))\n'
+    "\n"
+    "# devbox: SSH agent — ensure the key is loaded for git/ssh operations\n"
+    'if [[ -z "$SSH_AUTH_SOCK" ]]; then\n'
+    '    eval "$(ssh-agent -s)" >/dev/null 2>&1\n'
+    "fi\n"
+    "ssh-add -q $(awk '/IdentityFile/{print $2}' ~/.ssh/config"
+    ' | sed "s|^~|$HOME|") 2>/dev/null\n'
+)
+
+# .zprofile runs after /etc/zprofile (which calls path_helper) for login
+# shells. path_helper reads /etc/paths.d/homebrew from the parent user's
+# Homebrew install and prepends /opt/homebrew/bin ahead of our PATH,
+# shadowing the per-devbox ~/.homebrew binaries. Re-prepend here to put
+# ~/.homebrew first again so the devbox's own tools win.
+ZPROFILE_CONTENT = (
+    "# devbox: re-prepend ~/.homebrew/bin after macOS path_helper runs\n"
+    "# (parent /opt/homebrew would otherwise shadow our per-devbox brew).\n"
+    'if [ -x "$HOME/.homebrew/bin/brew" ]; then\n'
+    '    eval "$($HOME/.homebrew/bin/brew shellenv)"\n'
+    "fi\n"
+)
+
 LOGIN_NOTICE = ""
 
 LOADOUT_NOTICE = LOGIN_NOTICE  # backward-compat alias
@@ -48,26 +79,14 @@ def write_zshrc(home_dir: Path, name: str, username: str) -> None:
     .zshrc.local adds devbox-specific hooks that survive loadout builds.
     """
     zshenv_path = home_dir / ".zshenv"
-    zshenv_path.write_text(
-        "# devbox: per-devbox Homebrew environment\n"
-        'export HOMEBREW_PREFIX="$HOME/.homebrew"\n'
-        'export HOMEBREW_CELLAR="$HOME/.homebrew/Cellar"\n'
-        'export HOMEBREW_REPOSITORY="$HOME/.homebrew"\n'
-        'export PATH="$HOME/.homebrew/bin:$HOME/.homebrew/sbin:$PATH"\n'
-        'export MANPATH="$HOME/.homebrew/share/man${MANPATH+:$MANPATH}:"\n'
-        'export INFOPATH="$HOME/.homebrew/share/info:${INFOPATH:-}"\n'
-        'fpath=("$HOME/.homebrew/share/zsh/site-functions" $^fpath(-/N))\n'
-        "\n"
-        "# devbox: SSH agent — ensure the key is loaded for git/ssh operations\n"
-        'if [[ -z "$SSH_AUTH_SOCK" ]]; then\n'
-        '    eval "$(ssh-agent -s)" >/dev/null 2>&1\n'
-        "fi\n"
-        "ssh-add -q $(awk '/IdentityFile/{print $2}' ~/.ssh/config"
-        ' | sed "s|^~|$HOME|") 2>/dev/null\n',
-        encoding="utf-8",
-    )
+    zshenv_path.write_text(ZSHENV_CONTENT, encoding="utf-8")
     os.chmod(zshenv_path, 0o644)
     chown_path(zshenv_path, username)
+
+    zprofile_path = home_dir / ".zprofile"
+    zprofile_path.write_text(ZPROFILE_CONTENT, encoding="utf-8")
+    os.chmod(zprofile_path, 0o644)
+    chown_path(zprofile_path, username)
 
     zshrc_path = home_dir / ".zshrc.local"
     zshrc_path.write_text(generate_zshrc_local(name), encoding="utf-8")

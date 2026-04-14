@@ -214,6 +214,17 @@ class TestInstallBrewExtras:
         with pytest.raises(BootstrapError, match="brew extras"):
             install_brew_extras(HOME, ["bad-pkg"], USERNAME)
 
+    def test_ssh_base_runs_over_ssh(self, mocker: MockerFixture) -> None:
+        mock_run = mocker.patch("devbox.bootstrap.subprocess.run", return_value=_ok())
+        ssh_base = ["ssh", "-i", "/k", f"{USERNAME}@localhost"]
+        install_brew_extras(HOME, ["jq"], USERNAME, ssh_base=ssh_base)
+        cmd = mock_run.call_args[0][0]
+        assert cmd[:4] == ssh_base
+        assert "sudo" not in cmd
+        # inner must be wrapped as bash -c '<quoted>' for shell parity
+        assert cmd[4].startswith("bash -c ")
+        assert "jq" in cmd[4]
+
 
 # ---------------------------------------------------------------------------
 # install_npm_globals
@@ -238,6 +249,15 @@ class TestInstallNpmGlobals:
         with pytest.raises(BootstrapError, match="npm globals"):
             install_npm_globals(HOME, ["bad"], USERNAME)
 
+    def test_ssh_base_runs_over_ssh(self, mocker: MockerFixture) -> None:
+        mock_run = mocker.patch("devbox.bootstrap.subprocess.run", return_value=_ok())
+        ssh_base = ["ssh", "-i", "/k", f"{USERNAME}@localhost"]
+        install_npm_globals(HOME, ["typescript"], USERNAME, ssh_base=ssh_base)
+        cmd = mock_run.call_args[0][0]
+        assert cmd[:4] == ssh_base
+        assert "sudo" not in cmd
+        assert cmd[4].startswith("bash -c ")
+
 
 # ---------------------------------------------------------------------------
 # install_pip_globals
@@ -261,6 +281,15 @@ class TestInstallPipGlobals:
         mocker.patch("devbox.bootstrap.subprocess.run", return_value=_fail())
         with pytest.raises(BootstrapError, match="pip globals"):
             install_pip_globals(HOME, ["bad"], USERNAME)
+
+    def test_ssh_base_runs_over_ssh(self, mocker: MockerFixture) -> None:
+        mock_run = mocker.patch("devbox.bootstrap.subprocess.run", return_value=_ok())
+        ssh_base = ["ssh", "-i", "/k", f"{USERNAME}@localhost"]
+        install_pip_globals(HOME, ["ruff"], USERNAME, ssh_base=ssh_base)
+        cmd = mock_run.call_args[0][0]
+        assert cmd[:4] == ssh_base
+        assert "sudo" not in cmd
+        assert cmd[4].startswith("bash -c ")
 
 
 # ---------------------------------------------------------------------------

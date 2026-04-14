@@ -325,8 +325,8 @@ class TestRefreshCommand:
     def test_passes_flags(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mock_refresh = mocker.patch("devbox.cli.refresh_devbox")
         mocker.patch("devbox.cli.console")
-        runner.invoke(cli, ["refresh", "mybox", "--with-brew", "--with-globals"])
-        mock_refresh.assert_called_once_with("mybox", with_brew=True, with_globals=True)
+        runner.invoke(cli, ["refresh", "mybox", "--with-globals"])
+        mock_refresh.assert_called_once_with("mybox", with_globals=True)
 
     def test_requires_name_or_all(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch("devbox.cli.console")
