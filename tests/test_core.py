@@ -746,11 +746,11 @@ class TestRefreshDevbox:
         )
         return registry_path, presets_dir
 
-    def test_default_calls_refresh_dotfiles_only(
+    def test_default_installs_brew_extras_and_refreshes_dotfiles(
         self, tmp_path: Path, mocker: MockerFixture
     ) -> None:
         registry_path, presets_dir = self._setup(
-            tmp_path, brew_extras=["jq"], npm_globals=["typescript"]
+            tmp_path, brew_extras=["jq", "fd"], npm_globals=["typescript"]
         )
         mock_refresh = mocker.patch("devbox.bootstrap.refresh_dotfiles")
         mock_brew = mocker.patch("devbox.bootstrap.install_brew_extras")
@@ -760,33 +760,17 @@ class TestRefreshDevbox:
         refresh_devbox("mybox", registry_path=registry_path, presets_dir=presets_dir)
 
         mock_refresh.assert_called_once()
-        _, kwargs = mock_refresh.call_args
-        assert kwargs == {"with_brew": False, "with_globals": False}
-        mock_brew.assert_not_called()
-        mock_npm.assert_not_called()
-        mock_pip.assert_not_called()
-
-    def test_with_brew_runs_extras(self, tmp_path: Path, mocker: MockerFixture) -> None:
-        registry_path, presets_dir = self._setup(tmp_path, brew_extras=["jq", "fd"])
-        mocker.patch("devbox.bootstrap.refresh_dotfiles")
-        mock_brew = mocker.patch("devbox.bootstrap.install_brew_extras")
-
-        refresh_devbox(
-            "mybox",
-            with_brew=True,
-            registry_path=registry_path,
-            presets_dir=presets_dir,
-        )
-
         mock_brew.assert_called_once()
         args, kwargs = mock_brew.call_args
         assert args[1] == ["jq", "fd"]
         assert args[2] == "dx-mybox"
-        # ssh_base must be threaded through so installs run over SSH,
-        # not via host sudo (the whole point of the refactor).
+        # ssh_base threaded through so installs run over SSH (no host sudo).
         assert "ssh_base" in kwargs
         assert kwargs["ssh_base"][0] == "ssh"
         assert kwargs["ssh_base"][-1] == "dx-mybox@localhost"
+        # Globals are opt-in via --with-globals.
+        mock_npm.assert_not_called()
+        mock_pip.assert_not_called()
 
     def test_with_globals_runs_npm_and_pip(self, tmp_path: Path, mocker: MockerFixture) -> None:
         registry_path, presets_dir = self._setup(
@@ -835,18 +819,11 @@ class TestRefreshDevbox:
         with pytest.raises(DevboxError, match="not ready"):
             refresh_devbox("mybox", registry_path=registry_path, presets_dir=presets_dir)
 
-    def test_with_brew_skips_install_when_no_extras(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
+    def test_skips_brew_install_when_no_extras(self, tmp_path: Path, mocker: MockerFixture) -> None:
         registry_path, presets_dir = self._setup(tmp_path, brew_extras=[])
         mocker.patch("devbox.bootstrap.refresh_dotfiles")
         mock_brew = mocker.patch("devbox.bootstrap.install_brew_extras")
-        refresh_devbox(
-            "mybox",
-            with_brew=True,
-            registry_path=registry_path,
-            presets_dir=presets_dir,
-        )
+        refresh_devbox("mybox", registry_path=registry_path, presets_dir=presets_dir)
         mock_brew.assert_not_called()
 
     def test_refresh_dotfiles_failure_short_circuits(
@@ -861,7 +838,6 @@ class TestRefreshDevbox:
         with pytest.raises(DevboxError, match="ssh exploded"):
             refresh_devbox(
                 "mybox",
-                with_brew=True,
                 registry_path=registry_path,
                 presets_dir=presets_dir,
             )

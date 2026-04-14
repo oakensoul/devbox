@@ -94,26 +94,17 @@ def rebuild(name: str) -> None:
 @click.argument("name", required=False)
 @click.option("--all", "all_", is_flag=True, default=False, help="Refresh every registered devbox.")
 @click.option(
-    "--with-brew",
-    is_flag=True,
-    default=False,
-    help=(
-        "Also reinstall brew packages: BOTH the loadout Brewfile AND the "
-        "preset's brew_extras (two different sets). Required to pick up preset "
-        "brew_extras changes. Slow: 15-30 min/box, serial under --all."
-    ),
-)
-@click.option(
     "--with-globals",
     is_flag=True,
     default=False,
-    help=(
-        "Also reinstall npm/pip globals: BOTH the loadout globals AND the "
-        "preset's npm_globals/pip_globals. Required to pick up preset globals changes."
-    ),
+    help="Also reinstall the preset's npm_globals / pip_globals.",
 )
-def refresh(name: str | None, all_: bool, with_brew: bool, with_globals: bool) -> None:
-    """Push current dotfiles/config to an existing devbox without destroying state."""
+def refresh(name: str | None, all_: bool, with_globals: bool) -> None:
+    """Push current dotfiles/config to an existing devbox without destroying state.
+
+    Always refreshes dotfiles and reinstalls the preset's brew_extras. The
+    full loadout Brewfile is never re-run — rebuild the devbox instead.
+    """
     if all_ and name:
         console.print("[red]✗[/red] Pass either NAME or --all, not both")
         sys.exit(1)
@@ -131,9 +122,7 @@ def refresh(name: str | None, all_: bool, with_brew: bool, with_globals: bool) -
         # name is non-None — guarded by the "Pass a devbox NAME or --all" check above.
         targets = [name] if name is not None else []
 
-    scope_parts = ["dotfiles"]
-    if with_brew:
-        scope_parts.append("brew")
+    scope_parts = ["dotfiles", "brew extras"]
     if with_globals:
         scope_parts.append("globals")
     scope = ", ".join(scope_parts)
@@ -142,7 +131,7 @@ def refresh(name: str | None, all_: bool, with_brew: bool, with_globals: bool) -
     for box in targets:
         try:
             with console.status(f"[bold]Refreshing {box!r} ({scope})..."):
-                refresh_devbox(box, with_brew=with_brew, with_globals=with_globals)
+                refresh_devbox(box, with_globals=with_globals)
             console.print(f"[green]✓[/green] {box} refreshed ({scope})")
         except (DevboxError, ValueError) as exc:
             # Catch DevboxError (incl. BootstrapError subclass) and ValueError

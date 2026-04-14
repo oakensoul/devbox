@@ -108,11 +108,13 @@ def refresh_dotfiles(
     home_dir: Path,
     preset: Preset,
     username: str,
-    *,
-    with_brew: bool = False,
-    with_globals: bool = False,
 ) -> None:
-    """Run ``loadout update`` over SSH to refresh dotfiles on an existing devbox.
+    """Run ``loadout update --skip-brew --skip-globals`` over SSH to refresh dotfiles.
+
+    Always skips brew bundle and globals — preset-level brew_extras and
+    globals are installed separately by the caller, and the loadout
+    Brewfile is only run on rebuild (compiles from source at the
+    non-standard ``~/.homebrew`` prefix, 30+ min).
 
     Skips if no loadout_orgs are configured in the preset.
     Raises :exc:`BootstrapError` on failure.
@@ -125,18 +127,6 @@ def refresh_dotfiles(
     ssh_base = build_ssh_base(preset, username)
     q_home = shlex.quote(str(home_dir))
 
-    flags = []
-    if not with_brew:
-        flags.append("--skip-brew")
-    if not with_globals:
-        flags.append("--skip-globals")
-    flag_str = (" " + " ".join(flags)) if flags else ""
-
-    # Brew bundle at the non-standard ~/.homebrew prefix has no bottles, so
-    # it compiles from source and can take 15-30 min — hence the longer
-    # timeout when --with-brew is requested.
-    timeout = 1800 if with_brew else 180
-
     _run_checked(
         [
             *ssh_base,
@@ -144,10 +134,10 @@ def refresh_dotfiles(
             f"HOMEBREW_CELLAR={q_home}/.homebrew/Cellar "
             f"HOMEBREW_REPOSITORY={q_home}/.homebrew "
             f"PATH={q_home}/.homebrew/bin:{q_home}/.homebrew/sbin:$PATH "
-            f"&& {shlex.quote(loadout_bin)} update{flag_str}",
+            f"&& {shlex.quote(loadout_bin)} update --skip-brew --skip-globals",
         ],
         error_prefix="loadout update",
-        timeout=timeout,
+        timeout=180,
     )
 
 

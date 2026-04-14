@@ -106,12 +106,13 @@ devbox3       default         2025-03-10   SSH timeout  ❌ unreachable
 
 ### `devbox refresh`
 
-SSH into the existing devbox and re-run `loadout update --skip-brew --skip-globals` to pull current dotfiles and preset config. In-devbox state (shell history, uncommitted work, local files) is preserved. Refuses to run on devboxes that aren't in `ready` state.
+SSH into the existing devbox, run `loadout update --skip-brew --skip-globals` to pull current dotfiles, and reinstall the preset's `brew_extras`. In-devbox state (shell history, uncommitted work, local files) is preserved. Refuses to run on devboxes that aren't in `ready` state. All steps run as the devbox user over SSH — no host sudo, works in non-interactive shells.
+
+The loadout Brewfile itself is never re-run by refresh (it compiles from source at the non-standard `~/.homebrew` prefix, 30+ min) — use `rebuild` if it changes.
 
 Flags:
 
-- `--with-brew` — also drop `--skip-brew` (run loadout Brewfile) and reinstall preset `brew_extras`. Slow (15-30 min/box) because the per-devbox `~/.homebrew` prefix has no bottles.
-- `--with-globals` — also drop `--skip-globals` and reinstall preset `npm_globals` / `pip_globals`.
+- `--with-globals` — also reinstall preset `npm_globals` / `pip_globals`.
 - `--all` — iterate every `ready` devbox in the registry. Failures are collected and reported at the end; one failed box does not abort the rest.
 
 ### `devbox rebuild`
