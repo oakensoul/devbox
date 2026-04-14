@@ -177,8 +177,7 @@ Presets live in `~/.dotfiles-private/devbox/presets/<name>.json`:
   "version": 1,
   "name": "acme-data",
   "description": "dbt + Snowflake + Python data work",
-  "provider": "anthropic-work",
-  "aws_profile": "acme-main",
+  "provider": "aws",
   "github_account": "acme-dev",
   "node_version": "lts",
   "python_version": "3.12",
@@ -190,11 +189,25 @@ Presets live in `~/.dotfiles-private/devbox/presets/<name>.json`:
   "env_vars": {
     "SNOWFLAKE_ACCOUNT": "op://Work/Snowflake/account",
     "DBT_PROFILES_DIR": "~/.dbt"
+  },
+  "aws": {
+    "default_profile": "acme-main",
+    "profiles": [
+      {
+        "name": "acme-main",
+        "type": "static",
+        "region": "us-east-1",
+        "access_key_id": "op://Work/acme-aws/access_key_id",
+        "secret_access_key": "op://Work/acme-aws/secret_access_key"
+      }
+    ]
   }
 }
 ```
 
 `env_vars` values may use `op://` references — these are resolved at `devbox create` time via `op read`, and the resolved values are written to `/Users/dx-<name>/.devbox-env` (mode `0600`). The devbox user's `.zshrc` sources this file on login. Plaintext secrets are never stored in the preset or registry.
+
+The optional `aws:` block configures one or more AWS CLI profiles inside the devbox. Static profiles resolve `op://` references on the host at create/refresh time and write `~/.aws/credentials` (mode `0600`); SSO profiles write config-only blocks into `~/.aws/config` and require an interactive `aws sso login --profile <name>` per session. `AWS_PROFILE` is set to `default_profile` in `.devbox-env`.
 
 Since the devbox is disposable and 1Password is the source of truth, secret rotation is handled by nuking the devbox and recreating it.
 

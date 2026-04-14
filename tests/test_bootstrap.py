@@ -22,6 +22,8 @@ from devbox.bootstrap import (
     install_nvm,
     install_pip_globals,
     install_pyenv,
+    refresh_aws_config,
+    refresh_devbox_env,
     run_loadout,
     setup_gh_auth,
 )
@@ -485,3 +487,232 @@ class TestRunLoadout:
         preset = self._preset(loadout_orgs=[])
         run_loadout(HOME, preset, USERNAME)
         mock_run.assert_not_called()
+
+
+class TestRefreshAwsConfig:
+    """refresh_aws_config pushes ~/.aws/{config,credentials} via SSH."""
+
+    _AK = "AKIAIOSFODNN7EXAMPLE"
+    _SK = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+
+    def _preset_with_aws(self, profiles: list[dict]) -> Preset:
+        return _preset(
+            aws={"default_profile": profiles[0]["name"], "profiles": profiles},
+        )
+
+    def test_noop_when_no_aws_block(self, mocker: MockerFixture) -> None:
+
+        mock_run = mocker.patch("devbox.bootstrap.subprocess.run")
+        preset = _preset()
+        result = refresh_aws_config(HOME, preset, USERNAME)
+        assert result == []
+        mock_run.assert_not_called()
+
+    def test_writes_static_profile_via_ssh(self, mocker: MockerFixture) -> None:
+
+        mocker.patch("devbox.auth.get_secret", side_effect=[self._AK, self._SK])
+        mock_run = mocker.patch("devbox.bootstrap.subprocess.run", return_value=_ok())
+
+        preset = self._preset_with_aws(
+            [
+                {
+                    "name": "acme",
+                    "type": "static",
+                    "region": "us-east-1",
+                    "access_key_id": "op://V/I/access_key_id",
+                    "secret_access_key": "op://V/I/secret_access_key",
+                }
+            ]
+        )
+        sso = refresh_aws_config(HOME, preset, USERNAME)
+        assert sso == []
+        # mkdir + config + credentials = 3 calls
+        assert mock_run.call_count == 3
+        cmds = [call.args[0] for call in mock_run.call_args_list]
+        assert any("mkdir -p ~/.aws" in " ".join(c) for c in cmds)
+        assert any("~/.aws/config" in " ".join(c) for c in cmds)
+        assert any("~/.aws/credentials" in " ".join(c) for c in cmds)
+
+    def test_sso_profile_returned(self, mocker: MockerFixture) -> None:
+
+        mocker.patch("devbox.bootstrap.subprocess.run", return_value=_ok())
+        preset = self._preset_with_aws(
+            [
+                {
+                    "name": "splash",
+                    "type": "sso",
+                    "region": "us-east-1",
+                    "sso_start_url": "https://splash.awsapps.com/start",
+                    "sso_region": "us-east-1",
+                    "sso_account_id": "123456789012",
+                    "sso_role_name": "Dev",
+                }
+            ]
+        )
+        sso = refresh_aws_config(HOME, preset, USERNAME)
+        assert sso == ["splash"]
+
+    def test_heredoc_body_contains_rendered_content(self, mocker: MockerFixture) -> None:
+
+        mocker.patch("devbox.auth.get_secret", side_effect=[self._AK, self._SK])
+        mock_run = mocker.patch("devbox.bootstrap.subprocess.run", return_value=_ok())
+
+        preset = self._preset_with_aws(
+            [
+                {
+                    "name": "acme",
+                    "type": "static",
+                    "region": "us-west-2",
+                    "access_key_id": "op://V/I/access_key_id",
+                    "secret_access_key": "op://V/I/secret_access_key",
+                }
+            ]
+        )
+        refresh_aws_config(HOME, preset, USERNAME)
+
+        cmds = [call.args[0] for call in mock_run.call_args_list]
+        config_cmd = next(c for c in cmds if "~/.aws/config" in " ".join(c))
+        creds_cmd = next(c for c in cmds if "~/.aws/credentials" in " ".join(c))
+        config_body = config_cmd[-1]
+        creds_body = creds_cmd[-1]
+
+        assert "[profile acme]" in config_body
+        assert "region = us-west-2" in config_body
+        assert "[acme]" in creds_body
+        assert f"aws_access_key_id = {self._AK}" in creds_body
+        assert f"aws_secret_access_key = {self._SK}" in creds_body
+
+    def test_skips_credentials_when_sso_only(self, mocker: MockerFixture) -> None:
+
+        mock_run = mocker.patch("devbox.bootstrap.subprocess.run", return_value=_ok())
+        preset = self._preset_with_aws(
+            [
+                {
+                    "name": "splash",
+                    "type": "sso",
+                    "region": "us-east-1",
+                    "sso_start_url": "https://splash.awsapps.com/start",
+                    "sso_region": "us-east-1",
+                    "sso_account_id": "123456789012",
+                    "sso_role_name": "Dev",
+                }
+            ]
+        )
+        refresh_aws_config(HOME, preset, USERNAME)
+
+        cmds = [" ".join(call.args[0]) for call in mock_run.call_args_list]
+        assert any("~/.aws/config" in c for c in cmds)
+        assert not any("~/.aws/credentials" in c for c in cmds)
+
+    def test_ssh_failure_raises(self, mocker: MockerFixture) -> None:
+
+        mocker.patch("devbox.auth.get_secret", side_effect=[self._AK, self._SK])
+        mocker.patch("devbox.bootstrap.subprocess.run", return_value=_fail(code=255))
+
+        preset = self._preset_with_aws(
+            [
+                {
+                    "name": "acme",
+                    "type": "static",
+                    "region": "us-east-1",
+                    "access_key_id": "op://V/I/access_key_id",
+                    "secret_access_key": "op://V/I/secret_access_key",
+                }
+            ]
+        )
+        with pytest.raises(BootstrapError):
+            refresh_aws_config(HOME, preset, USERNAME)
+
+
+class TestRefreshDevboxEnv:
+    """refresh_devbox_env pushes .devbox-env via base64 over SSH."""
+
+    def test_noop_when_nothing_resolved(self, mocker: MockerFixture) -> None:
+        mock_run = mocker.patch("devbox.bootstrap.subprocess.run")
+        preset = _preset()  # no env_vars, no aws
+        refresh_devbox_env(HOME, preset, USERNAME)
+        mock_run.assert_not_called()
+
+    def test_writes_aws_profile(self, mocker: MockerFixture) -> None:
+        import base64
+
+        mock_run = mocker.patch("devbox.bootstrap.subprocess.run", return_value=_ok())
+        preset = _preset(
+            aws={
+                "default_profile": "acme",
+                "profiles": [
+                    {
+                        "name": "acme",
+                        "type": "static",
+                        "region": "us-east-1",
+                        "access_key_id": "op://V/I/access_key_id",
+                        "secret_access_key": "op://V/I/secret_access_key",
+                    }
+                ],
+            },
+        )
+        refresh_devbox_env(HOME, preset, USERNAME)
+
+        assert mock_run.call_count == 1
+        cmd = mock_run.call_args_list[0].args[0]
+        remote = cmd[-1]
+        assert "~/.devbox-env" in remote
+        assert "chmod 0600" in remote
+        assert "base64 -d" in remote
+        # Extract base64 payload and confirm it decodes to the expected export.
+        payload = remote.split("echo ")[1].split(" |")[0]
+        decoded = base64.b64decode(payload).decode("utf-8")
+        assert "AWS_PROFILE=" in decoded and "acme" in decoded
+
+    def test_resolves_env_vars(self, mocker: MockerFixture) -> None:
+        import base64
+
+        mocker.patch(
+            "devbox.onepassword.resolve_env_vars",
+            return_value={"TOKEN": "s3cret"},
+        )
+        mock_run = mocker.patch("devbox.bootstrap.subprocess.run", return_value=_ok())
+        preset = _preset(env_vars={"TOKEN": "op://V/I/F"})
+        refresh_devbox_env(HOME, preset, USERNAME)
+
+        cmd = mock_run.call_args_list[0].args[0]
+        payload = cmd[-1].split("echo ")[1].split(" |")[0]
+        decoded = base64.b64decode(payload).decode("utf-8")
+        assert "export TOKEN=" in decoded
+
+    def test_op_error_raises_bootstrap_error(self, mocker: MockerFixture) -> None:
+        from devbox.exceptions import OnePasswordError
+
+        mocker.patch(
+            "devbox.onepassword.resolve_env_vars",
+            side_effect=OnePasswordError("vault locked"),
+        )
+        preset = _preset(env_vars={"TOKEN": "op://V/I/F"})
+        with pytest.raises(BootstrapError, match="refresh env"):
+            refresh_devbox_env(HOME, preset, USERNAME)
+
+
+class TestRefreshAwsConfigErrorPath:
+    def test_render_failure_raises_bootstrap_error(self, mocker: MockerFixture) -> None:
+        from devbox.exceptions import AuthError
+
+        mocker.patch(
+            "devbox.bootstrap.render_aws_files",
+            side_effect=AuthError("op boom"),
+        )
+        preset = _preset(
+            aws={
+                "default_profile": "acme",
+                "profiles": [
+                    {
+                        "name": "acme",
+                        "type": "static",
+                        "region": "us-east-1",
+                        "access_key_id": "op://V/I/access_key_id",
+                        "secret_access_key": "op://V/I/secret_access_key",
+                    }
+                ],
+            },
+        )
+        with pytest.raises(BootstrapError, match="refresh AWS config"):
+            refresh_aws_config(HOME, preset, USERNAME)

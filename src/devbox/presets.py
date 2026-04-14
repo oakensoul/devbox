@@ -8,9 +8,17 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from devbox.exceptions import PresetError
 from devbox.naming import GITHUB_ACCOUNT_RE, validate_name
@@ -25,6 +33,56 @@ _SAFE_VALUE_RE = re.compile(r"^[a-zA-Z0-9@_./:=~-]*$")
 _ENV_KEY_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 _REPO_RE = re.compile(r"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$")
 _VALID_PROVIDERS = frozenset({"local", "aws"})
+_AwsProfileName = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z0-9_-]+$")]
+_AwsRegion = Annotated[str, StringConstraints(pattern=r"^[a-z]{2}-[a-z]+-\d+$")]
+_AwsAccountId = Annotated[str, StringConstraints(pattern=r"^\d{12}$")]
+_AwsSsoUrl = Annotated[str, StringConstraints(pattern=r"^https://[a-zA-Z0-9.-]+(?:/[a-zA-Z0-9._/-]*)?$")]
+_AwsSsoRoleName = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z0-9_.-]+$", min_length=1)]
+_AwsOpRef = Annotated[str, StringConstraints(pattern=r"^op://.+$")]
+_AwsOutput = Literal["json", "yaml", "yaml-stream", "text", "table"]
+
+
+class _AwsProfileBase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: _AwsProfileName
+    region: _AwsRegion
+    output: _AwsOutput = "json"
+
+
+class AwsStaticProfile(_AwsProfileBase):
+    type: Literal["static"]
+    access_key_id: _AwsOpRef
+    secret_access_key: _AwsOpRef
+
+
+class AwsSsoProfile(_AwsProfileBase):
+    type: Literal["sso"]
+    sso_start_url: _AwsSsoUrl
+    sso_region: _AwsRegion
+    sso_account_id: _AwsAccountId
+    sso_role_name: _AwsSsoRoleName
+
+
+AwsProfile = Annotated[AwsStaticProfile | AwsSsoProfile, Field(discriminator="type")]
+
+
+class AwsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    default_profile: _AwsProfileName
+    profiles: list[AwsProfile]
+
+    @model_validator(mode="after")
+    def _default_must_exist(self) -> AwsConfig:
+        names = [p.name for p in self.profiles]
+        if len(names) != len(set(names)):
+            raise ValueError("Duplicate AWS profile names")
+        if self.default_profile not in names:
+            raise ValueError(
+                f"default_profile {self.default_profile!r} not found in profiles"
+            )
+        return self
 _DANGEROUS_ENV_KEYS = frozenset(
     {
         "LD_PRELOAD",
@@ -47,7 +105,7 @@ class Preset(BaseModel):
     name: str
     description: str
     provider: str
-    aws_profile: str = ""
+    aws: AwsConfig | None = None
     github_account: str
     ssh_key: str = "id_ed25519"
     color_scheme: str = "gruvbox"
@@ -103,7 +161,7 @@ class Preset(BaseModel):
             raise ValueError(msg)
         return v
 
-    @field_validator("aws_profile", "color_scheme", "node_version", "python_version", "mcp_profile")
+    @field_validator("color_scheme", "node_version", "python_version", "mcp_profile")
     @classmethod
     def validate_safe_string(cls, v: str) -> str:
         """Reject values with shell metacharacters."""
