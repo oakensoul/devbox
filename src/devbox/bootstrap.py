@@ -122,8 +122,9 @@ def refresh_shell_env(home_dir: Path, preset: Preset, username: str) -> None:
         _run_checked(
             [
                 *ssh_base,
-                f"cat > ~{filename} << 'DEVBOX_SHELL_ENV_EOF'\n{content}DEVBOX_SHELL_ENV_EOF\n"
-                f"&& chmod 0644 ~{filename}",
+                f"cat > ~{filename} << 'DEVBOX_SHELL_ENV_EOF'\n"
+                f"{content}DEVBOX_SHELL_ENV_EOF\n"
+                f"chmod 0644 ~{filename}",
             ],
             error_prefix=f"write ~{filename}",
             timeout=10,
