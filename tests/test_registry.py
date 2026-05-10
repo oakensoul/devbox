@@ -233,6 +233,7 @@ class TestModels:
     def test_devbox_status_values(self) -> None:
         assert DevboxStatus.CREATING.value == "creating"
         assert DevboxStatus.READY.value == "ready"
+        assert DevboxStatus.INCOMPLETE.value == "incomplete"
         assert DevboxStatus.NUKING.value == "nuking"
 
     def test_registry_entry_defaults(self) -> None:

@@ -14,6 +14,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Add concurrency control to CI workflows
 
 ### Added
+- `incomplete` registry status for devboxes whose `run_loadout` and/or `clone_repos` failed during create (typically GitHub SSH throttling). Surfaced in `devbox list` and as a warning summary on `create`/`rebuild`, with a clear hint to run `devbox refresh` to retry.
+- `devbox refresh` now accepts `incomplete` boxes and re-runs the failed clone phases before the regular refresh logic. On success the status is promoted to `ready`; on failure it raises with a recoverable error (no FileNotFoundError on missing `~/.dotfiles`). `devbox refresh --all` includes `incomplete` boxes.
 - `devbox refresh <name>` and `devbox refresh --all` to push current dotfiles/config and reinstall preset `brew_extras` on existing devboxes without destroying state. Runs entirely over SSH as the devbox user (no host sudo). `--with-globals` opt-in reinstalls `npm_globals`/`pip_globals`. Loadout Brewfile changes require `rebuild`. (#49, #51)
 - SPDX license headers and copyright notices on all source files
 - CODE_OF_CONDUCT.md (Contributor Covenant v2.1)

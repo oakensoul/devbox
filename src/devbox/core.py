@@ -257,7 +257,11 @@ def create_devbox(
         ssh.add_ssh_config_entry(name, preset_obj.ssh_key)
         compensation.push("remove SSH config entry", partial(ssh.remove_ssh_config_entry, name))
 
-        # Run loadout via SSH now that the devbox is accessible
+        # Run loadout via SSH now that the devbox is accessible.
+        # Failures here leave the devbox without dotfiles — track them so
+        # the final status reflects that (INCOMPLETE) and the user gets a
+        # clear recovery hint via `devbox refresh`.
+        bootstrap_warnings: list[str] = []
         if preset_obj.loadout_orgs:
             step("Running loadout (this may take several minutes)")
             try:
@@ -265,6 +269,7 @@ def create_devbox(
 
                 run_loadout(home_dir, preset_obj, username)
             except Exception as exc:
+                bootstrap_warnings.append(f"loadout: {exc}")
                 logger.warning("Loadout failed (non-fatal): %s", exc)
 
         # Create ~/Developer and clone repos. Always runs so ~/Developer
@@ -277,17 +282,21 @@ def create_devbox(
 
             clone_repos(home_dir, preset_obj, username)
         except Exception as exc:
+            bootstrap_warnings.append(f"repo clone: {exc}")
             logger.warning("Repo setup failed (non-fatal): %s", exc)
 
         step("Finalizing")
-        update_entry(name, registry_path, status=DevboxStatus.READY)
+        final_status = DevboxStatus.INCOMPLETE if bootstrap_warnings else DevboxStatus.READY
+        update_entry(name, registry_path, status=final_status)
 
     except Exception:
         compensation.rollback()
         raise
 
     updated = find_entry(name, registry_path)
-    return updated.model_dump() if updated else entry.model_dump()
+    result = updated.model_dump() if updated else entry.model_dump()
+    result["bootstrap_warnings"] = bootstrap_warnings
+    return result
 
 
 def list_devboxes(
@@ -490,7 +499,9 @@ def refresh_devbox(
 
     # Status check is best-effort: there's no registry lock, so a concurrent
     # nuke/rebuild could race. SSH will fail cleanly in that case.
-    if entry.status != DevboxStatus.READY:
+    # INCOMPLETE is allowed so refresh can repair half-bootstrapped boxes
+    # (e.g. when GitHub SSH throttling killed the initial clones).
+    if entry.status not in (DevboxStatus.READY, DevboxStatus.INCOMPLETE):
         raise DevboxError(
             f"Devbox {name!r} is not ready to refresh (status: {entry.status.value}). "
             f"Wait for it to finish, or use 'devbox list' to check."
@@ -502,12 +513,38 @@ def refresh_devbox(
 
     from devbox.bootstrap import (
         build_ssh_base,
+        clone_repos,
         install_brew_extras,
         install_npm_globals,
         install_pip_globals,
         refresh_dotfiles,
         refresh_shell_env,
+        run_loadout,
     )
+
+    # Repair phase: re-run the create-time clones if the box is INCOMPLETE.
+    # Both run_loadout and clone_repos are idempotent (skip when target exists),
+    # so this is safe even if some repos already cloned. If repair still fails
+    # (e.g. throttle window not closed), bail before refresh_dotfiles trips on
+    # missing ~/.dotfiles.
+    if entry.status == DevboxStatus.INCOMPLETE:
+        repair_warnings: list[str] = []
+        if preset_obj.loadout_orgs:
+            try:
+                run_loadout(home_dir, preset_obj, username)
+            except Exception as exc:
+                repair_warnings.append(f"loadout: {exc}")
+        try:
+            clone_repos(home_dir, preset_obj, username)
+        except Exception as exc:
+            repair_warnings.append(f"repo clone: {exc}")
+        if repair_warnings:
+            raise DevboxError(
+                "Repair failed: "
+                + "; ".join(repair_warnings)
+                + ". Wait a few minutes and retry, or rebuild."
+            )
+        update_entry(name, registry_path, status=DevboxStatus.READY)
 
     if not preset_obj.loadout_orgs and (preset_obj.brew_extras or with_globals):
         logger.warning(

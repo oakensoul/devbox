@@ -249,6 +249,10 @@ class TestCreateDevbox:
         mocker.patch("devbox.core.bootstrap_user", return_value=[])
         mocker.patch("devbox.core.write_zshrc")
         mocker.patch("devbox.core.time.sleep")
+        # run_loadout / clone_repos are imported inline inside create_devbox
+        # via `from devbox.bootstrap import …`, so patch the source module.
+        mocker.patch("devbox.bootstrap.run_loadout")
+        mocker.patch("devbox.bootstrap.clone_repos")
 
         return {
             "presets_dir": presets_dir,
@@ -366,6 +370,74 @@ class TestCreateDevbox:
         )
         mock_resolve.assert_called_once_with({"SECRET": "op://vault/item/field"})
         mock_write.assert_called_once()
+
+    def test_loadout_failure_marks_incomplete(
+        self, setup: dict[str, Any], mocker: MockerFixture
+    ) -> None:
+        """A failed run_loadout should leave the devbox in INCOMPLETE state."""
+        _make_preset_file(setup["presets_dir"], "with-orgs", loadout_orgs=["myorg"])
+        _make_registry(setup["registry_path"], [])
+        mocker.patch(
+            "devbox.bootstrap.run_loadout",
+            side_effect=Exception("github ssh timeout"),
+        )
+        result = create_devbox(
+            "mybox",
+            "with-orgs",
+            registry_path=setup["registry_path"],
+            presets_dir=setup["presets_dir"],
+        )
+        assert result["status"] == DevboxStatus.INCOMPLETE
+        warnings = result["bootstrap_warnings"]
+        assert len(warnings) == 1
+        assert "loadout" in warnings[0]
+        assert "github ssh timeout" in warnings[0]
+
+    def test_clone_repos_failure_marks_incomplete(
+        self, setup: dict[str, Any], mocker: MockerFixture
+    ) -> None:
+        """A failed clone_repos should leave the devbox in INCOMPLETE state."""
+        mocker.patch(
+            "devbox.bootstrap.clone_repos",
+            side_effect=Exception("repo unreachable"),
+        )
+        result = create_devbox(
+            "mybox",
+            "test-preset",
+            registry_path=setup["registry_path"],
+            presets_dir=setup["presets_dir"],
+        )
+        assert result["status"] == DevboxStatus.INCOMPLETE
+        warnings = result["bootstrap_warnings"]
+        assert len(warnings) == 1
+        assert "repo clone" in warnings[0]
+        assert "repo unreachable" in warnings[0]
+
+    def test_both_failures_collected(self, setup: dict[str, Any], mocker: MockerFixture) -> None:
+        """Both run_loadout and clone_repos failures should be reported together."""
+        _make_preset_file(setup["presets_dir"], "with-orgs", loadout_orgs=["myorg"])
+        _make_registry(setup["registry_path"], [])
+        mocker.patch("devbox.bootstrap.run_loadout", side_effect=Exception("e1"))
+        mocker.patch("devbox.bootstrap.clone_repos", side_effect=Exception("e2"))
+        result = create_devbox(
+            "mybox",
+            "with-orgs",
+            registry_path=setup["registry_path"],
+            presets_dir=setup["presets_dir"],
+        )
+        assert result["status"] == DevboxStatus.INCOMPLETE
+        assert len(result["bootstrap_warnings"]) == 2
+
+    def test_happy_path_returns_empty_warnings(self, setup: dict[str, Any]) -> None:
+        """A successful create returns READY with an empty bootstrap_warnings list."""
+        result = create_devbox(
+            "mybox",
+            "test-preset",
+            registry_path=setup["registry_path"],
+            presets_dir=setup["presets_dir"],
+        )
+        assert result["status"] == DevboxStatus.READY
+        assert result["bootstrap_warnings"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -855,6 +927,68 @@ class TestRefreshDevbox:
                 presets_dir=presets_dir,
             )
         mock_brew.assert_not_called()
+
+    def test_incomplete_status_repairs_then_proceeds(
+        self, tmp_path: Path, mocker: MockerFixture
+    ) -> None:
+        """Refresh on INCOMPLETE box runs run_loadout/clone_repos first."""
+        presets_dir = tmp_path / "presets"
+        presets_dir.mkdir()
+        _make_preset_file(presets_dir, "test-preset", loadout_orgs=["myorg"])
+        registry_path = tmp_path / "registry.json"
+        _make_registry(registry_path, [_entry("mybox", status=DevboxStatus.INCOMPLETE)])
+        mock_run_loadout = mocker.patch("devbox.bootstrap.run_loadout")
+        mock_clone_repos = mocker.patch("devbox.bootstrap.clone_repos")
+        mocker.patch("devbox.bootstrap.refresh_dotfiles")
+
+        refresh_devbox("mybox", registry_path=registry_path, presets_dir=presets_dir)
+
+        mock_run_loadout.assert_called_once()
+        mock_clone_repos.assert_called_once()
+        # Status should be promoted to READY after successful repair
+        from devbox.registry import find_entry
+
+        updated = find_entry("mybox", registry_path)
+        assert updated is not None
+        assert updated.status == DevboxStatus.READY
+
+    def test_incomplete_repair_failure_aborts_refresh(
+        self, tmp_path: Path, mocker: MockerFixture
+    ) -> None:
+        """If repair clones still fail, refresh aborts before refresh_dotfiles."""
+        presets_dir = tmp_path / "presets"
+        presets_dir.mkdir()
+        _make_preset_file(presets_dir, "test-preset", loadout_orgs=["myorg"])
+        registry_path = tmp_path / "registry.json"
+        _make_registry(registry_path, [_entry("mybox", status=DevboxStatus.INCOMPLETE)])
+        mocker.patch(
+            "devbox.bootstrap.run_loadout",
+            side_effect=Exception("still throttled"),
+        )
+        mocker.patch("devbox.bootstrap.clone_repos")
+        mock_refresh_dotfiles = mocker.patch("devbox.bootstrap.refresh_dotfiles")
+
+        with pytest.raises(DevboxError, match="Repair failed"):
+            refresh_devbox("mybox", registry_path=registry_path, presets_dir=presets_dir)
+        mock_refresh_dotfiles.assert_not_called()
+        # Status should remain INCOMPLETE
+        from devbox.registry import find_entry
+
+        updated = find_entry("mybox", registry_path)
+        assert updated is not None
+        assert updated.status == DevboxStatus.INCOMPLETE
+
+    def test_ready_status_skips_repair(self, tmp_path: Path, mocker: MockerFixture) -> None:
+        """READY refresh should not invoke run_loadout / clone_repos repair path."""
+        registry_path, presets_dir = self._setup(tmp_path, loadout_orgs=["myorg"])
+        mock_run_loadout = mocker.patch("devbox.bootstrap.run_loadout")
+        mock_clone_repos = mocker.patch("devbox.bootstrap.clone_repos")
+        mocker.patch("devbox.bootstrap.refresh_dotfiles")
+
+        refresh_devbox("mybox", registry_path=registry_path, presets_dir=presets_dir)
+
+        mock_run_loadout.assert_not_called()
+        mock_clone_repos.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

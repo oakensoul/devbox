@@ -30,6 +30,7 @@ _STATUS_ICONS: dict[str, str] = {
     "unreachable": "[red]❌ unreachable[/red]",
     "unknown": "[dim]— unknown[/dim]",
     "creating": "[blue]🔧 creating[/blue]",
+    "incomplete": "[yellow]⚠️  incomplete[/yellow]",
     "nuking": "[red]💀 nuking[/red]",
 }
 
@@ -69,8 +70,22 @@ def create(name: str, preset: str | None, dry_run: bool) -> None:
                 result = create_devbox(name, preset, on_step=_on_step)
             finally:
                 status.stop()
-            console.print(f"[green]✓[/green] Devbox [bold]{name}[/bold] created successfully")
-            console.print(f"  Connect: [cyan]ssh dx-{name}[/cyan]")
+            warnings = result.get("bootstrap_warnings") or []
+            if warnings:
+                console.print(
+                    f"[yellow]⚠[/yellow] Devbox [bold]{name}[/bold] created with warnings:"
+                )
+                for w in warnings:
+                    console.print(f"  [yellow]•[/yellow] {w}")
+                console.print(
+                    f"  Some bootstrap steps failed (often GitHub SSH throttling). "
+                    f"Wait a few minutes, then run "
+                    f"[cyan]devbox refresh {name}[/cyan] to retry."
+                )
+                console.print(f"  Connect: [cyan]ssh dx-{name}[/cyan]")
+            else:
+                console.print(f"[green]✓[/green] Devbox [bold]{name}[/bold] created successfully")
+                console.print(f"  Connect: [cyan]ssh dx-{name}[/cyan]")
     except (DevboxError, ValueError) as exc:
         console.print(f"[red]✗[/red] {exc}")
         sys.exit(1)
@@ -82,8 +97,19 @@ def rebuild(name: str) -> None:
     """Tear down and recreate an existing devbox."""
     try:
         with console.status(f"[bold]Rebuilding devbox {name!r}..."):
-            rebuild_devbox(name)
-        console.print(f"[green]✓[/green] Devbox [bold]{name}[/bold] rebuilt successfully")
+            result = rebuild_devbox(name)
+        warnings = result.get("bootstrap_warnings") or []
+        if warnings:
+            console.print(f"[yellow]⚠[/yellow] Devbox [bold]{name}[/bold] rebuilt with warnings:")
+            for w in warnings:
+                console.print(f"  [yellow]•[/yellow] {w}")
+            console.print(
+                f"  Some bootstrap steps failed (often GitHub SSH throttling). "
+                f"Wait a few minutes, then run "
+                f"[cyan]devbox refresh {name}[/cyan] to retry."
+            )
+        else:
+            console.print(f"[green]✓[/green] Devbox [bold]{name}[/bold] rebuilt successfully")
         console.print(f"  Connect: [cyan]ssh dx-{name}[/cyan]")
     except (DevboxError, ValueError) as exc:
         console.print(f"[red]✗[/red] {exc}")
@@ -114,7 +140,12 @@ def refresh(name: str | None, all_: bool, with_globals: bool) -> None:
 
     if all_:
         registry = load_registry()
-        targets = [e.name for e in registry.devboxes if e.status == DevboxStatus.READY]
+        # Include INCOMPLETE so --all repairs half-bootstrapped boxes too.
+        targets = [
+            e.name
+            for e in registry.devboxes
+            if e.status in (DevboxStatus.READY, DevboxStatus.INCOMPLETE)
+        ]
         if not targets:
             console.print("[yellow]No ready devboxes to refresh[/yellow]")
             return

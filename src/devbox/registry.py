@@ -29,6 +29,7 @@ class DevboxStatus(StrEnum):
 
     CREATING = "creating"
     READY = "ready"
+    INCOMPLETE = "incomplete"
     NUKING = "nuking"
 
 
