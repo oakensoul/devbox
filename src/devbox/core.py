@@ -24,7 +24,7 @@ from devbox.bootstrap import bootstrap_user
 from devbox.exceptions import DevboxError
 from devbox.health import format_last_seen, get_health, read_heartbeat
 from devbox.naming import DX_PREFIX, validate_name
-from devbox.presets import load_preset
+from devbox.presets import Preset, load_preset
 from devbox.registry import (
     DevboxStatus,
     RegistryEntry,
@@ -86,24 +86,14 @@ class _CompensationStack:
         return errors
 
 
-def preflight_devbox(
-    name: str,
-    preset: str,
-    registry_path: Path | None = None,
-    presets_dir: Path | None = None,
-) -> None:
-    """Run preflight checks and warm up sudo before create.
+def _preflight_system(preset_obj: Preset) -> None:
+    """Check system prereqs and warm up sudo / 1Password.
 
-    Called outside the spinner so interactive prompts (sudo password) are visible.
+    Shared by ``preflight_devbox`` (create) and ``preflight_rebuild``.
+    Must be called outside the CLI spinner so interactive prompts
+    (sudo password, 1Password biometric) are visible to the user.
     Raises :exc:`DevboxError` on failure.
     """
-    validate_name(name)
-    preset_obj = load_preset(preset, presets_dir)
-
-    existing = find_entry(name, registry_path)
-    if existing is not None:
-        raise DevboxError(f"Devbox {name!r} already exists (status: {existing.status})")
-
     if not sshd.is_remote_login_enabled():
         raise DevboxError(
             "Remote Login (sshd) is not enabled. "
@@ -124,6 +114,51 @@ def preflight_devbox(
     result = subprocess.run(["sudo", "-v"], timeout=60)  # noqa: S607
     if result.returncode != 0:
         raise DevboxError("sudo authentication failed")
+
+
+def preflight_devbox(
+    name: str,
+    preset: str,
+    registry_path: Path | None = None,
+    presets_dir: Path | None = None,
+) -> None:
+    """Run preflight checks and warm up sudo before create.
+
+    Called outside the spinner so interactive prompts (sudo password) are visible.
+    Raises :exc:`DevboxError` on failure.
+    """
+    validate_name(name)
+    preset_obj = load_preset(preset, presets_dir)
+
+    existing = find_entry(name, registry_path)
+    if existing is not None:
+        raise DevboxError(f"Devbox {name!r} already exists (status: {existing.status})")
+
+    _preflight_system(preset_obj)
+
+
+def preflight_rebuild(
+    name: str,
+    registry_path: Path | None = None,
+    presets_dir: Path | None = None,
+) -> None:
+    """Run preflight checks and warm up sudo before rebuild.
+
+    Same as :func:`preflight_devbox` but expects the registry entry to
+    exist (rebuild fails on missing entries; create fails on duplicates).
+    Without this warmup the rebuild's first ``sudo`` call is hidden by
+    the spinner and times out at 30 s — see issue history.
+
+    Raises :exc:`DevboxError` on failure.
+    """
+    validate_name(name)
+
+    entry = find_entry(name, registry_path)
+    if entry is None:
+        raise DevboxError(f"Devbox {name!r} not found in registry")
+
+    preset_obj = load_preset(entry.preset, presets_dir)
+    _preflight_system(preset_obj)
 
 
 def create_devbox(

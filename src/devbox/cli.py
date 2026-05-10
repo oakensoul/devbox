@@ -96,6 +96,13 @@ def create(name: str, preset: str | None, dry_run: bool) -> None:
 def rebuild(name: str) -> None:
     """Tear down and recreate an existing devbox."""
     try:
+        # Preflight runs outside the spinner so sudo / 1Password prompts
+        # are visible. Without this the first sudo call inside the rebuild
+        # hangs invisibly behind the spinner and times out.
+        console.print(f"[bold]Preparing rebuild of {name!r}...[/bold]")
+        from devbox.core import preflight_rebuild
+
+        preflight_rebuild(name)
         with console.status(f"[bold]Rebuilding devbox {name!r}..."):
             result = rebuild_devbox(name)
         warnings = result.get("bootstrap_warnings") or []

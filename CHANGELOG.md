@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- `devbox rebuild` now warms up sudo (and 1Password when the preset has `op://` env vars) before the spinner starts, matching `create` and `nuke`. Previously, the first sudo call inside the rebuild was hidden by the spinner and timed out at 30s with a cryptic `Failed to set ownership on /Users/dx-* — timed out` error. New `preflight_rebuild` helper shares the warmup logic with `preflight_devbox` via a private `_preflight_system`.
+
 ### Security
 - Pin GitHub Actions to full commit SHAs
 - Add missing secret patterns to .gitignore
