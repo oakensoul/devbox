@@ -253,6 +253,7 @@ class TestNukeDryRun:
 
 class TestRebuildCommand:
     def test_happy_path(self, runner: CliRunner, mocker: MockerFixture) -> None:
+        mocker.patch("devbox.core.preflight_rebuild")
         mocker.patch("devbox.cli.rebuild_devbox")
         mocker.patch("devbox.cli.console")
 
@@ -260,7 +261,19 @@ class TestRebuildCommand:
 
         assert result.exit_code == 0
 
+    def test_calls_preflight_before_rebuild(self, runner: CliRunner, mocker: MockerFixture) -> None:
+        """Preflight runs outside the spinner so sudo prompts are visible."""
+        mock_preflight = mocker.patch("devbox.core.preflight_rebuild")
+        mock_rebuild = mocker.patch("devbox.cli.rebuild_devbox")
+        mocker.patch("devbox.cli.console")
+
+        runner.invoke(cli, ["rebuild", "mybox"])
+
+        mock_preflight.assert_called_once_with("mybox")
+        mock_rebuild.assert_called_once_with("mybox")
+
     def test_calls_core_with_name(self, runner: CliRunner, mocker: MockerFixture) -> None:
+        mocker.patch("devbox.core.preflight_rebuild")
         mock_rebuild = mocker.patch("devbox.cli.rebuild_devbox")
         mocker.patch("devbox.cli.console")
 
@@ -271,6 +284,7 @@ class TestRebuildCommand:
     def test_success_output_mentions_rebuilt(
         self, runner: CliRunner, mocker: MockerFixture
     ) -> None:
+        mocker.patch("devbox.core.preflight_rebuild")
         mocker.patch("devbox.cli.rebuild_devbox")
         mock_console = mocker.patch("devbox.cli.console")
 
@@ -279,6 +293,22 @@ class TestRebuildCommand:
         printed = " ".join(str(c) for c in mock_console.print.call_args_list)
         assert "rebuilt" in printed
         assert "mybox" in printed
+
+    def test_preflight_failure_skips_rebuild(
+        self, runner: CliRunner, mocker: MockerFixture
+    ) -> None:
+        """If preflight raises, rebuild_devbox should not be invoked."""
+        mocker.patch(
+            "devbox.core.preflight_rebuild",
+            side_effect=DevboxError("not found"),
+        )
+        mock_rebuild = mocker.patch("devbox.cli.rebuild_devbox")
+        mocker.patch("devbox.cli.console")
+
+        result = runner.invoke(cli, ["rebuild", "mybox"])
+
+        assert result.exit_code == 1
+        mock_rebuild.assert_not_called()
 
     def test_devbox_error_exits_1(self, runner: CliRunner, mocker: MockerFixture) -> None:
         mocker.patch(

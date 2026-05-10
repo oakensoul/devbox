@@ -708,6 +708,102 @@ class TestNukeDevbox:
 # ---------------------------------------------------------------------------
 
 
+class TestPreflightRebuild:
+    """preflight_rebuild validates the entry exists and warms up sudo."""
+
+    def test_missing_entry_raises(self, tmp_path: Path) -> None:
+        from devbox.core import preflight_rebuild
+
+        registry_path = tmp_path / "registry.json"
+        _make_registry(registry_path, [])
+        with pytest.raises(DevboxError, match="not found"):
+            preflight_rebuild("missing", registry_path=registry_path)
+
+    def test_invalid_name_raises(self, tmp_path: Path) -> None:
+        from devbox.core import preflight_rebuild
+
+        registry_path = tmp_path / "registry.json"
+        _make_registry(registry_path, [])
+        with pytest.raises(ValueError, match="kebab-case"):
+            preflight_rebuild("Bad_Name", registry_path=registry_path)
+
+    def test_warms_up_sudo(self, tmp_path: Path, mocker: MockerFixture) -> None:
+        """Sudo warmup runs even when no op:// refs are present."""
+        from devbox.core import preflight_rebuild
+
+        presets_dir = tmp_path / "presets"
+        presets_dir.mkdir()
+        _make_preset_file(presets_dir, "test-preset")
+        registry_path = tmp_path / "registry.json"
+        _make_registry(registry_path, [_entry("mybox", status=DevboxStatus.READY)])
+
+        mocker.patch("devbox.core.sshd.is_remote_login_enabled", return_value=True)
+        mock_run = mocker.patch(
+            "devbox.core.subprocess.run",
+            return_value=mocker.MagicMock(returncode=0),
+        )
+
+        preflight_rebuild("mybox", registry_path=registry_path, presets_dir=presets_dir)
+
+        sudo_calls = [c for c in mock_run.call_args_list if c.args[0] == ["sudo", "-v"]]
+        assert len(sudo_calls) == 1
+
+    def test_op_warmup_when_op_refs_present(self, tmp_path: Path, mocker: MockerFixture) -> None:
+        """A preset with op:// env_vars triggers an op whoami warmup."""
+        from devbox.core import preflight_rebuild
+
+        presets_dir = tmp_path / "presets"
+        presets_dir.mkdir()
+        _make_preset_file(
+            presets_dir,
+            "test-preset",
+            env_vars={"TOKEN": "op://vault/item/field"},
+        )
+        registry_path = tmp_path / "registry.json"
+        _make_registry(registry_path, [_entry("mybox", status=DevboxStatus.READY)])
+
+        mocker.patch("devbox.core.sshd.is_remote_login_enabled", return_value=True)
+        mock_run = mocker.patch(
+            "devbox.core.subprocess.run",
+            return_value=mocker.MagicMock(returncode=0),
+        )
+
+        preflight_rebuild("mybox", registry_path=registry_path, presets_dir=presets_dir)
+
+        op_calls = [c for c in mock_run.call_args_list if c.args[0] == ["op", "whoami"]]
+        assert len(op_calls) == 1
+
+    def test_sshd_disabled_raises(self, tmp_path: Path, mocker: MockerFixture) -> None:
+        from devbox.core import preflight_rebuild
+
+        presets_dir = tmp_path / "presets"
+        presets_dir.mkdir()
+        _make_preset_file(presets_dir, "test-preset")
+        registry_path = tmp_path / "registry.json"
+        _make_registry(registry_path, [_entry("mybox", status=DevboxStatus.READY)])
+
+        mocker.patch("devbox.core.sshd.is_remote_login_enabled", return_value=False)
+        with pytest.raises(DevboxError, match="Remote Login"):
+            preflight_rebuild("mybox", registry_path=registry_path, presets_dir=presets_dir)
+
+    def test_sudo_failure_raises(self, tmp_path: Path, mocker: MockerFixture) -> None:
+        from devbox.core import preflight_rebuild
+
+        presets_dir = tmp_path / "presets"
+        presets_dir.mkdir()
+        _make_preset_file(presets_dir, "test-preset")
+        registry_path = tmp_path / "registry.json"
+        _make_registry(registry_path, [_entry("mybox", status=DevboxStatus.READY)])
+
+        mocker.patch("devbox.core.sshd.is_remote_login_enabled", return_value=True)
+        mocker.patch(
+            "devbox.core.subprocess.run",
+            return_value=mocker.MagicMock(returncode=1),
+        )
+        with pytest.raises(DevboxError, match="sudo authentication failed"):
+            preflight_rebuild("mybox", registry_path=registry_path, presets_dir=presets_dir)
+
+
 class TestRebuildDevbox:
     def test_happy_path(self, tmp_path: Path, mocker: MockerFixture) -> None:
         presets_dir = tmp_path / "presets"
