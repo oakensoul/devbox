@@ -79,7 +79,7 @@ class TestPresetDefaults:
     def test_defaults_applied(self) -> None:
         preset = Preset(**VALID_PRESET)
         assert preset.version == 1
-        assert preset.aws_profile == ""
+        assert preset.aws is None
         assert preset.color_scheme == "gruvbox"
         assert preset.node_version == "lts"
         assert preset.python_version == "3.12"
@@ -95,7 +95,6 @@ class TestPresetDefaults:
             "name": "full",
             "description": "Full preset",
             "provider": "aws",
-            "aws_profile": "my-profile",
             "github_account": "user",
             "color_scheme": "catppuccin",
             "node_version": "20",
@@ -249,16 +248,6 @@ class TestPresetFieldValidation:
             preset = validate_preset(data)
             assert preset.provider == provider
 
-    def test_aws_profile_injection_rejected(self) -> None:
-        data = {**VALID_PRESET, "aws_profile": "profile; echo pwned"}
-        with pytest.raises(PresetError, match="validation failed"):
-            validate_preset(data)
-
-    def test_valid_aws_profile_accepted(self) -> None:
-        data = {**VALID_PRESET, "aws_profile": "my-profile_v2"}
-        preset = validate_preset(data)
-        assert preset.aws_profile == "my-profile_v2"
-
     def test_node_version_injection_rejected(self) -> None:
         data = {**VALID_PRESET, "node_version": "20 && rm -rf /"}
         with pytest.raises(PresetError, match="validation failed"):
@@ -291,5 +280,118 @@ class TestPresetFieldValidation:
 
     def test_brew_extras_non_list_rejected(self) -> None:
         data = {**VALID_PRESET, "brew_extras": "not-a-list"}
+        with pytest.raises(PresetError, match="validation failed"):
+            validate_preset(data)
+
+
+def _static_profile(name: str = "acme") -> dict[str, Any]:
+    return {
+        "name": name,
+        "type": "static",
+        "region": "us-east-1",
+        "access_key_id": "op://Vault/Item/access_key_id",
+        "secret_access_key": "op://Vault/Item/secret_access_key",
+    }
+
+
+def _sso_profile(name: str = "splash-dev") -> dict[str, Any]:
+    return {
+        "name": name,
+        "type": "sso",
+        "region": "us-east-1",
+        "sso_start_url": "https://splash.awsapps.com/start",
+        "sso_region": "us-east-1",
+        "sso_account_id": "123456789012",
+        "sso_role_name": "DeveloperAccess",
+    }
+
+
+class TestAwsBlock:
+    def test_valid_static_profile(self) -> None:
+        data = {**VALID_PRESET, "aws": {"default_profile": "acme", "profiles": [_static_profile()]}}
+        preset = validate_preset(data)
+        assert preset.aws is not None
+        assert preset.aws.default_profile == "acme"
+        assert preset.aws.profiles[0].name == "acme"
+
+    def test_valid_sso_profile(self) -> None:
+        data = {
+            **VALID_PRESET,
+            "aws": {"default_profile": "splash-dev", "profiles": [_sso_profile()]},
+        }
+        preset = validate_preset(data)
+        assert preset.aws.profiles[0].type == "sso"
+
+    def test_valid_mixed_profiles(self) -> None:
+        data = {
+            **VALID_PRESET,
+            "aws": {
+                "default_profile": "acme",
+                "profiles": [_static_profile(), _sso_profile()],
+            },
+        }
+        preset = validate_preset(data)
+        assert len(preset.aws.profiles) == 2
+
+    def test_default_profile_must_exist(self) -> None:
+        data = {
+            **VALID_PRESET,
+            "aws": {"default_profile": "missing", "profiles": [_static_profile()]},
+        }
+        with pytest.raises(PresetError, match="not found in profiles"):
+            validate_preset(data)
+
+    def test_duplicate_profile_names_rejected(self) -> None:
+        data = {
+            **VALID_PRESET,
+            "aws": {
+                "default_profile": "acme",
+                "profiles": [_static_profile(), _static_profile()],
+            },
+        }
+        with pytest.raises(PresetError, match="Duplicate"):
+            validate_preset(data)
+
+    def test_unknown_profile_type_rejected(self) -> None:
+        bad = {**_static_profile(), "type": "magic"}
+        data = {**VALID_PRESET, "aws": {"default_profile": "acme", "profiles": [bad]}}
+        with pytest.raises(PresetError, match="validation failed"):
+            validate_preset(data)
+
+    def test_static_requires_op_ref(self) -> None:
+        bad = {**_static_profile(), "access_key_id": "AKIA-literal-not-allowed"}
+        data = {**VALID_PRESET, "aws": {"default_profile": "acme", "profiles": [bad]}}
+        with pytest.raises(PresetError, match="validation failed"):
+            validate_preset(data)
+
+    def test_bad_region_rejected(self) -> None:
+        bad = {**_static_profile(), "region": "US-EAST-1"}
+        data = {**VALID_PRESET, "aws": {"default_profile": "acme", "profiles": [bad]}}
+        with pytest.raises(PresetError, match="validation failed"):
+            validate_preset(data)
+
+    def test_bad_sso_account_id_rejected(self) -> None:
+        bad = {**_sso_profile(), "sso_account_id": "12345"}
+        data = {**VALID_PRESET, "aws": {"default_profile": "splash-dev", "profiles": [bad]}}
+        with pytest.raises(PresetError, match="validation failed"):
+            validate_preset(data)
+
+    def test_bad_profile_name_rejected(self) -> None:
+        bad = {**_static_profile(), "name": "acme; rm -rf /"}
+        data = {
+            **VALID_PRESET,
+            "aws": {"default_profile": "acme", "profiles": [bad]},
+        }
+        with pytest.raises(PresetError, match="validation failed"):
+            validate_preset(data)
+
+    def test_empty_profiles_with_default_rejected(self) -> None:
+        data = {**VALID_PRESET, "aws": {"default_profile": "acme", "profiles": []}}
+        with pytest.raises(PresetError, match="not found in profiles"):
+            validate_preset(data)
+
+    def test_extra_field_on_profile_rejected(self) -> None:
+        bad = {**_static_profile(), "extra": "nope"}
+        data = {**VALID_PRESET, "aws": {"default_profile": "acme", "profiles": [bad]}}
         with pytest.raises(PresetError, match="validation failed"):
             validate_preset(data)
