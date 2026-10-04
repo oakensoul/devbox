@@ -68,6 +68,13 @@ class TestBuildProfile:
         profile = _build_profile("dev1", preset)
         assert profile["Profiles"][0]["Color Preset"] == "custom-theme"
 
+    def test_both_profiles_set_nerd_font(self) -> None:
+        preset = _make_preset()
+        profiles = _build_profile("dev1", preset)["Profiles"]
+        for p in profiles:
+            assert p["Normal Font"] == "JetBrainsMonoNFM-Regular 12"
+            assert p["Use Non-ASCII Font"] is False
+
     def test_tags_include_devbox_and_preset(self) -> None:
         preset = _make_preset()
         profile = _build_profile("dev1", preset)
