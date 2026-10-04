@@ -34,6 +34,15 @@ def _profile_path(name: str, profiles_dir: Path | None = None) -> Path:
 # tmux session the "(tmux)" profile attaches to (created on first use).
 TMUX_SESSION = "main"
 
+# Default terminal font for generated profiles. JetBrainsMono Nerd Font (the
+# "NFM" monospace variant) so Starship's Nerd Font glyphs render instead of
+# tofu boxes. The font must be installed on the *host* (the Mac running
+# iTerm2) — a devbox is reached over SSH, so the host's fonts are what render,
+# not the devbox user's. Install on the host via:
+#   brew install --cask font-jetbrains-mono-nerd-font
+FONT_NAME = "JetBrainsMonoNFM-Regular"
+FONT_SIZE = 12
+
 
 def _tmux_command(name: str) -> str:
     """SSH command that attaches (or creates) a tmux -CC session on the devbox.
@@ -58,6 +67,10 @@ def _build_profile(name: str, preset: Preset) -> dict[str, Any]:
         "Badge Text": name,
         "Custom Command": "Yes",
         "Dynamic Profile Parent Name": "Default",
+        # Nerd Font so Starship's powerline/icon glyphs render. Non-ASCII glyphs
+        # come from the same font (no separate fallback) to avoid tofu boxes.
+        "Normal Font": f"{FONT_NAME} {FONT_SIZE}",
+        "Use Non-ASCII Font": False,
         "Semantic History": {
             "action": "best editor",
         },
