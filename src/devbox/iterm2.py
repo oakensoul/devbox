@@ -40,8 +40,10 @@ def _tmux_command(name: str) -> str:
 
     Runs through a login shell so PATH includes Homebrew: either the devbox's
     own ``~/.homebrew`` or, via macOS path_helper, the host's ``/opt/homebrew``.
+    Uses Apple's ``/bin/zsh`` explicitly: a source-built zsh in the devbox's
+    Homebrew can be broken after a macOS upgrade (hangs on command substitution).
     """
-    return f"ssh -t dx-{name} \"zsh -lc 'tmux -CC new-session -A -s {TMUX_SESSION}'\""
+    return f"ssh -t dx-{name} \"/bin/zsh -lc 'tmux -CC new-session -A -s {TMUX_SESSION}'\""
 
 
 def _build_profile(name: str, preset: Preset) -> dict[str, Any]:

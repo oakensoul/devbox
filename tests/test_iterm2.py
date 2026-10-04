@@ -36,6 +36,7 @@ class TestBuildProfile:
         assert tmux["Guid"] == "devbox-dev1-tmux"
         assert tmux["Command"].startswith("ssh -t dx-dev1 ")
         assert "tmux -CC new-session -A -s main" in tmux["Command"]
+        assert "/bin/zsh -lc" in tmux["Command"]
         assert "tmux" in tmux["Tags"]
         assert tmux["Color Preset"] == profiles[0]["Color Preset"]
 
