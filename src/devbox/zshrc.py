@@ -51,19 +51,51 @@ ZPROFILE_CONTENT = (
 
 LOGIN_NOTICE = ""
 
+# `dev <folder> [claude args...]` — cd into ~/Developer/<folder> and start
+# Claude Code with permission prompts skipped. Devbox-only: each devbox is an
+# isolated macOS user, which is what makes skipping permissions acceptable.
+DEV_FUNCTION = (
+    "# devbox dev command\n"
+    "dev() {\n"
+    '    if [[ -z "$1" ]]; then\n'
+    '        print -u2 "usage: dev <folder> [claude options...]"\n'
+    '        print -u2 "folders in ~/Developer:"\n'
+    "        ls -1 ~/Developer >&2 2>/dev/null\n"
+    "        return 1\n"
+    "    fi\n"
+    '    local dir="$HOME/Developer/$1"\n'
+    "    shift\n"
+    '    if [[ ! -d "$dir" ]]; then\n'
+    '        print -u2 "dev: no such folder: $dir"\n'
+    "        return 1\n"
+    "    fi\n"
+    '    cd "$dir" && claude "$@" --dangerously-skip-permissions\n'
+    "}\n"
+    "_dev() {\n"
+    "    if (( CURRENT == 2 )); then\n"
+    '        _path_files -/ -W "$HOME/Developer"\n'
+    "    else\n"
+    "        _files\n"
+    "    fi\n"
+    "}\n"
+    "(( $+functions[compdef] )) && compdef _dev dev"
+)
+
+
 LOADOUT_NOTICE = LOGIN_NOTICE  # backward-compat alias
 
 
 def generate_zshrc_local(name: str) -> str:
     """Return .zshrc.local content for a devbox user.
 
-    Includes the environment source line, heartbeat hook, and dotfiles
+    Includes the environment source line, heartbeat hook, the ``dev`` command, and dotfiles
     divergence notice.  Written to .zshrc.local so it survives loadout builds.
     """
     return (
         f"# .zshrc.local for devbox {name}\n\n"
         f"{ENV_SOURCE_LINE}\n\n"
         f"{HEARTBEAT_HOOK}\n\n"
+        f"{DEV_FUNCTION}\n\n"
         f"{LOGIN_NOTICE}\n"
     )
 

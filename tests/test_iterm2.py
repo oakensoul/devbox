@@ -28,12 +28,24 @@ def _make_preset(**overrides: Any) -> Preset:
 
 
 class TestBuildProfile:
+    def test_tmux_profile(self) -> None:
+        preset = _make_preset()
+        profiles = _build_profile("dev1", preset)["Profiles"]
+        tmux = profiles[1]
+        assert tmux["Name"] == "devbox::dev1 (tmux)"
+        assert tmux["Guid"] == "devbox-dev1-tmux"
+        assert tmux["Command"].startswith("ssh -t dx-dev1 ")
+        assert "tmux -CC new-session -A -s main" in tmux["Command"]
+        assert "/bin/zsh -lc" in tmux["Command"]
+        assert "tmux" in tmux["Tags"]
+        assert tmux["Color Preset"] == profiles[0]["Color Preset"]
+
     def test_profile_structure(self) -> None:
         preset = _make_preset()
         profile = _build_profile("dev1", preset)
 
         assert "Profiles" in profile
-        assert len(profile["Profiles"]) == 1
+        assert len(profile["Profiles"]) == 2
         p = profile["Profiles"][0]
         assert p["Name"] == "devbox::dev1"
         assert p["Guid"] == "devbox-dev1"

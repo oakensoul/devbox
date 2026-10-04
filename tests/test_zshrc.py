@@ -8,9 +8,11 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pytest
 from pytest_mock import MockerFixture
 
 from devbox.zshrc import (
+    DEV_FUNCTION,
     ENV_SOURCE_LINE,
     HEARTBEAT_HOOK,
     LOADOUT_NOTICE,
@@ -177,3 +179,32 @@ class TestIsHookInstalled:
         mocker.patch("devbox.zshrc.chown_path")
         write_zshrc(tmp_path, "my-dev", "dx-my-dev")
         assert is_hook_installed(tmp_path) is True
+
+
+class TestDevFunction:
+    def test_included_in_zshrc_local(self) -> None:
+        assert DEV_FUNCTION in generate_zshrc("my-dev")
+
+    def test_cds_into_developer_folder(self) -> None:
+        assert 'local dir="$HOME/Developer/$1"' in DEV_FUNCTION
+        assert 'cd "$dir"' in DEV_FUNCTION
+
+    def test_passes_args_then_skip_permissions(self) -> None:
+        assert 'claude "$@" --dangerously-skip-permissions' in DEV_FUNCTION
+
+    def test_registers_completion(self) -> None:
+        assert "compdef _dev dev" in DEV_FUNCTION
+
+    def test_is_valid_zsh(self, tmp_path: Path) -> None:
+        import shutil
+        import subprocess
+
+        zsh = shutil.which("zsh")
+        if zsh is None:
+            pytest.skip("zsh not installed")
+        script = tmp_path / "dev.zsh"
+        script.write_text(DEV_FUNCTION + "\n", encoding="utf-8")
+        result = subprocess.run(  # noqa: S603
+            [zsh, "-n", str(script)], capture_output=True, text=True, check=False
+        )
+        assert result.returncode == 0, result.stderr

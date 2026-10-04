@@ -21,7 +21,7 @@ from typing import Any
 from devbox import iterm2, macos, onepassword, ssh, sshd, sudoers
 from devbox.auth import inject_auth
 from devbox.bootstrap import bootstrap_user
-from devbox.exceptions import DevboxError
+from devbox.exceptions import BootstrapError, DevboxError
 from devbox.health import format_last_seen, get_health, read_heartbeat
 from devbox.naming import DX_PREFIX, validate_name
 from devbox.presets import Preset, load_preset
@@ -550,6 +550,7 @@ def refresh_devbox(
         build_ssh_base,
         clone_repos,
         install_brew_extras,
+        install_iterm2_shell_integration,
         install_npm_globals,
         install_pip_globals,
         refresh_dotfiles,
@@ -600,6 +601,12 @@ def refresh_devbox(
 
     if preset_obj.brew_extras:
         install_brew_extras(home_dir, preset_obj.brew_extras, username, ssh_base=ssh_base)
+
+    try:
+        install_iterm2_shell_integration(home_dir, username, ssh_base=ssh_base)
+    except BootstrapError as exc:
+        # Nice-to-have; never fail a refresh over it.
+        logger.warning("iTerm2 shell integration refresh failed: %s", exc)
 
     if with_globals:
         if preset_obj.npm_globals:
