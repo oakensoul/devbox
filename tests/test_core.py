@@ -25,7 +25,7 @@ from devbox.core import (
     sync_heartbeats,
     write_env_file,
 )
-from devbox.exceptions import DevboxError
+from devbox.exceptions import BootstrapError, DevboxError
 from devbox.registry import DevboxStatus, Registry, RegistryEntry, save_registry
 from devbox.utils import shell_escape
 
@@ -918,6 +918,17 @@ class TestRefreshDevbox:
         )
         return registry_path, presets_dir
 
+    def test_iterm2_failure_does_not_fail_refresh(
+        self, tmp_path: Path, mocker: MockerFixture
+    ) -> None:
+        registry_path, presets_dir = self._setup(tmp_path)
+        mocker.patch("devbox.bootstrap.refresh_dotfiles")
+        mocker.patch(
+            "devbox.bootstrap.install_iterm2_shell_integration",
+            side_effect=BootstrapError("iterm2 shell integration install: boom"),
+        )
+        refresh_devbox("mybox", registry_path=registry_path, presets_dir=presets_dir)
+
     def test_default_installs_brew_extras_and_refreshes_dotfiles(
         self, tmp_path: Path, mocker: MockerFixture
     ) -> None:
@@ -928,10 +939,13 @@ class TestRefreshDevbox:
         mock_brew = mocker.patch("devbox.bootstrap.install_brew_extras")
         mock_npm = mocker.patch("devbox.bootstrap.install_npm_globals")
         mock_pip = mocker.patch("devbox.bootstrap.install_pip_globals")
+        mock_iterm2 = mocker.patch("devbox.bootstrap.install_iterm2_shell_integration")
 
         refresh_devbox("mybox", registry_path=registry_path, presets_dir=presets_dir)
 
         mock_refresh.assert_called_once()
+        mock_iterm2.assert_called_once()
+        assert "ssh_base" in mock_iterm2.call_args.kwargs
         mock_brew.assert_called_once()
         args, kwargs = mock_brew.call_args
         assert args[1] == ["jq", "fd"]

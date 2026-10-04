@@ -22,6 +22,7 @@ _HOMEBREW_REPO = "https://github.com/Homebrew/brew"
 _NVM_INSTALL_URL = "https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh"
 _PYENV_INSTALLER_URL = "https://pyenv.run"
 _CLAUDE_CODE_INSTALL_URL = "https://claude.ai/install.sh"
+_ITERM2_SHELL_INTEGRATION_URL = "https://iterm2.com/shell_integration/zsh"
 
 _TOOL_TIMEOUT = 300  # seconds — generous for node/python builds
 _BREW_TIMEOUT = 300  # compiles from source on non-standard prefix
@@ -545,6 +546,35 @@ def install_claude_code(home_dir: Path, username: str) -> None:
     )
 
 
+def install_iterm2_shell_integration(
+    home_dir: Path,
+    username: str,
+    *,
+    ssh_base: list[str] | None = None,
+) -> None:
+    """Download iTerm2's zsh shell integration to ``~/.iterm2_shell_integration.zsh``.
+
+    The loadout base ``.zshrc`` sources it when present. Downloaded directly
+    rather than via iTerm2's installer, which would append to ``~/.zshrc``.
+    Pass *ssh_base* to run via SSH instead of ``sudo -u``.
+
+    Raises :exc:`BootstrapError` on failure.
+    """
+    _validate_username(username)
+    q_home = shlex.quote(str(home_dir))
+    q_url = shlex.quote(_ITERM2_SHELL_INTEGRATION_URL)
+    inner = (
+        f"export HOME={q_home} "
+        f"&& curl --proto =https -fsSL {q_url} -o ~/.iterm2_shell_integration.zsh.tmp "
+        "&& mv ~/.iterm2_shell_integration.zsh.tmp ~/.iterm2_shell_integration.zsh"
+    )
+    _run_checked(
+        _wrap_as_user(inner, username, ssh_base),
+        error_prefix="iterm2 shell integration install",
+        timeout=_TOOL_TIMEOUT,
+    )
+
+
 def setup_gh_auth(home_dir: Path, username: str) -> None:
     """Configure the GitHub CLI to use SSH for git operations.
 
@@ -687,6 +717,7 @@ def bootstrap_user(
         ("pip globals", lambda: install_pip_globals(home_dir, preset.pip_globals, username)),
         ("claude code", lambda: install_claude_code(home_dir, username)),
         ("gh auth", lambda: setup_gh_auth(home_dir, username)),
+        ("iterm2 shell integration", lambda: install_iterm2_shell_integration(home_dir, username)),
     ]
 
     for label, step_fn in steps:
