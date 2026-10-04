@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 from pytest_mock import MockerFixture
@@ -20,6 +22,7 @@ from devbox.core import (
     create_devbox,
     list_devboxes,
     nuke_devbox,
+    preflight_refresh,
     rebuild_devbox,
     refresh_devbox,
     sync_heartbeats,
@@ -1324,3 +1327,55 @@ class TestNukeDevboxDryRun:
     def test_invalid_name_still_raises(self, setup: dict[str, Any]) -> None:
         with pytest.raises(ValueError, match="kebab-case"):
             nuke_devbox("Bad_Name", registry_path=setup["registry_path"], dry_run=True)
+
+
+class TestPreflightRefresh:
+    def _setup(self, tmp_path: Path, status: DevboxStatus, loadout_orgs: list[str]) -> None:
+        presets_dir = tmp_path / "presets"
+        presets_dir.mkdir()
+        _make_preset_file(presets_dir, "test-preset", loadout_orgs=loadout_orgs)
+        _make_registry(tmp_path / "registry.json", [_entry("box1", status=status)])
+
+    def _run(self, tmp_path: Path, name: str = "box1") -> None:
+        preflight_refresh(
+            [name],
+            registry_path=tmp_path / "registry.json",
+            presets_dir=tmp_path / "presets",
+        )
+
+    def test_warms_sudo_for_incomplete_with_loadout_orgs(
+        self, tmp_path: Path, mocker: MockerFixture
+    ) -> None:
+        self._setup(tmp_path, DevboxStatus.INCOMPLETE, ["personal"])
+        mock_run = mocker.patch("devbox.core.subprocess.run", return_value=MagicMock(returncode=0))
+        self._run(tmp_path)
+        assert mock_run.call_count == 1
+        assert mock_run.call_args.args[0] == ["sudo", "-v"]
+
+    def test_no_sudo_for_ready_box(self, tmp_path: Path, mocker: MockerFixture) -> None:
+        self._setup(tmp_path, DevboxStatus.READY, ["personal"])
+        mock_run = mocker.patch("devbox.core.subprocess.run")
+        self._run(tmp_path)
+        mock_run.assert_not_called()
+
+    def test_no_sudo_when_incomplete_without_loadout_orgs(
+        self, tmp_path: Path, mocker: MockerFixture
+    ) -> None:
+        self._setup(tmp_path, DevboxStatus.INCOMPLETE, [])
+        mock_run = mocker.patch("devbox.core.subprocess.run")
+        self._run(tmp_path)
+        mock_run.assert_not_called()
+
+    def test_missing_entry_is_noop(self, tmp_path: Path, mocker: MockerFixture) -> None:
+        self._setup(tmp_path, DevboxStatus.READY, ["personal"])
+        mock_run = mocker.patch("devbox.core.subprocess.run")
+        self._run(tmp_path, name="nope")
+        mock_run.assert_not_called()
+
+    def test_sudo_timeout_is_swallowed(self, tmp_path: Path, mocker: MockerFixture) -> None:
+        self._setup(tmp_path, DevboxStatus.INCOMPLETE, ["personal"])
+        mocker.patch(
+            "devbox.core.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd="sudo", timeout=60),
+        )
+        self._run(tmp_path)  # must not raise

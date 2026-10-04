@@ -161,6 +161,37 @@ def preflight_rebuild(
     _preflight_system(preset_obj)
 
 
+def preflight_refresh(
+    names: list[str],
+    registry_path: Path | None = None,
+    presets_dir: Path | None = None,
+) -> None:
+    """Warm up sudo before a refresh that may hit the repair path.
+
+    Only INCOMPLETE boxes with ``loadout_orgs`` re-run ``run_loadout``, whose
+    one host-``sudo`` call (system git ``safe.directory``) is otherwise issued
+    inside the CLI spinner where a password prompt would be invisible and time
+    out. Warming the sudo timestamp here — outside the spinner — lets that call
+    succeed. Best-effort: never raises (the sudo call is itself best-effort now,
+    so a healthy READY refresh needs no sudo at all).
+    """
+    needs_sudo = False
+    for name in names:
+        entry = find_entry(name, registry_path)
+        if entry is None or entry.status != DevboxStatus.INCOMPLETE:
+            continue
+        with contextlib.suppress(Exception):
+            if load_preset(entry.preset, presets_dir).loadout_orgs:
+                needs_sudo = True
+                break
+
+    if not needs_sudo:
+        return
+
+    with contextlib.suppress(FileNotFoundError, subprocess.TimeoutExpired):
+        subprocess.run(["sudo", "-v"], timeout=60)  # noqa: S607
+
+
 def create_devbox(
     name: str,
     preset: str,

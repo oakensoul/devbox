@@ -169,6 +169,49 @@ def refresh_dotfiles(
     )
 
 
+def ensure_git_safe_directory(timeout: int = 10) -> str | None:
+    """Trust directories owned by other users in the system git config.
+
+    Devbox users run git in parent-owned directories (``/opt/homebrew`` and
+    its taps), which trips git's "dubious ownership" guard. Setting
+    ``safe.directory = *`` system-wide fixes it and survives loadout
+    rebuilding ``~/.gitconfig``.
+
+    Idempotent and best-effort:
+
+    * Reads the current value first (no sudo) and returns ``None`` immediately
+      if ``*`` is already present — the common case once any devbox exists,
+      since the system gitconfig outlives individual devbox users.
+    * Otherwise sets it with ``sudo -n`` (non-interactive, so it fails fast
+      instead of hanging on a hidden password prompt when the sudo timestamp
+      has expired — e.g. after a long brew compile). On any failure it returns
+      a warning string rather than raising, so one missed setting cannot abort
+      the rest of the bootstrap (the loadout update that applies dotfiles runs
+      immediately after this).
+    """
+    try:
+        existing = subprocess.run(
+            ["git", "config", "--system", "--get-all", "safe.directory"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if existing.returncode == 0 and "*" in existing.stdout.split():
+            return None
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass  # fall through and try to set it
+
+    try:
+        _run_checked(
+            ["sudo", "-n", "git", "config", "--system", "--replace-all", "safe.directory", "*"],
+            error_prefix="git safe.directory",
+            timeout=timeout,
+        )
+    except BootstrapError as exc:
+        return str(exc)
+    return None
+
+
 def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
     """Run loadout init as the devbox user to set up dotfiles and config.
 
@@ -258,12 +301,11 @@ def run_loadout(home_dir: Path, preset: Preset, username: str) -> None:
 
     # Allow the devbox user to run git in directories owned by other users
     # (e.g. /opt/homebrew and its taps are owned by the parent account).
-    # Set system-wide so loadout rebuilding ~/.gitconfig can't wipe it.
-    _run_checked(
-        ["sudo", "git", "config", "--system", "--replace-all", "safe.directory", "*"],
-        error_prefix="git safe.directory",
-        timeout=10,
-    )
+    # Best-effort: a missed setting must not abort the bootstrap before the
+    # loadout update below (which is what actually applies the dotfiles) runs.
+    warning = ensure_git_safe_directory()
+    if warning:
+        logger.warning("git safe.directory not set (continuing): %s", warning)
 
     # Run loadout update to pull dotfiles and apply full config.
     # Skip brew bundle and globals — bootstrap_user() already installed

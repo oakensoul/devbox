@@ -15,6 +15,7 @@ from pytest_mock import MockerFixture
 from devbox.bootstrap import (
     _run_checked,
     bootstrap_user,
+    ensure_git_safe_directory,
     install_brew_extras,
     install_claude_code,
     install_homebrew,
@@ -467,16 +468,17 @@ class TestRunLoadout:
         """Dotfile clones should retry up to 2 times with backoff."""
         mocker.patch("shutil.which", return_value="/usr/local/bin/loadout")
         mocker.patch("devbox.bootstrap.time.sleep")
+        # safe.directory is covered by its own tests; stub it here.
+        mocker.patch("devbox.bootstrap.ensure_git_safe_directory", return_value=None)
         # Clone dotfiles: ok, clone dotfiles-private: fail,
-        # retry dotfiles-private: ok,
-        # write loadout config + git safe.directory + loadout update
+        # retry dotfiles-private: ok, write loadout config, loadout update
         mock_run = mocker.patch(
             "devbox.bootstrap.subprocess.run",
-            side_effect=[_ok(), _fail(), _ok(), _ok(), _ok(), _ok()],
+            side_effect=[_ok(), _fail(), _ok(), _ok(), _ok()],
         )
         preset = self._preset()
         run_loadout(HOME, preset, USERNAME)
-        assert mock_run.call_count == 6
+        assert mock_run.call_count == 5
 
     def test_clone_fails_after_retries(self, mocker: MockerFixture) -> None:
         """Raise BootstrapError after exhausting clone retries (non-connection error)."""
@@ -514,3 +516,45 @@ class TestRunLoadout:
         preset = self._preset(loadout_orgs=[])
         run_loadout(HOME, preset, USERNAME)
         mock_run.assert_not_called()
+
+
+class TestEnsureGitSafeDirectory:
+    def test_noop_when_already_set(self, mocker: MockerFixture) -> None:
+        """Returns None and never sudos when '*' is already present."""
+        mock_run = mocker.patch(
+            "devbox.bootstrap.subprocess.run",
+            return_value=_ok(stdout="/some/dir\n*\n"),
+        )
+        assert ensure_git_safe_directory() is None
+        # Only the read happened — no sudo write.
+        assert mock_run.call_count == 1
+        assert mock_run.call_args.args[0][:3] == ["git", "config", "--system"]
+
+    def test_sets_when_missing(self, mocker: MockerFixture) -> None:
+        """Reads (not set), then sets it via sudo -n."""
+        mock_run = mocker.patch(
+            "devbox.bootstrap.subprocess.run",
+            side_effect=[_ok(stdout=""), _ok()],
+        )
+        assert ensure_git_safe_directory() is None
+        assert mock_run.call_count == 2
+        assert mock_run.call_args.args[0][:2] == ["sudo", "-n"]
+
+    def test_warns_instead_of_raising_on_sudo_failure(self, mocker: MockerFixture) -> None:
+        """A failed/expired sudo returns a warning string, never raises."""
+        mocker.patch(
+            "devbox.bootstrap.subprocess.run",
+            side_effect=[_ok(stdout=""), _fail(stderr="a password is required")],
+        )
+        result = ensure_git_safe_directory()
+        assert result is not None
+        assert "git safe.directory" in result
+
+    def test_sets_when_read_unavailable(self, mocker: MockerFixture) -> None:
+        """If git isn't found for the read, still attempts the set."""
+        mock_run = mocker.patch(
+            "devbox.bootstrap.subprocess.run",
+            side_effect=[FileNotFoundError(), _ok()],
+        )
+        assert ensure_git_safe_directory() is None
+        assert mock_run.call_count == 2
