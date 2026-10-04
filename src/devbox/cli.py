@@ -165,6 +165,12 @@ def refresh(name: str | None, all_: bool, with_globals: bool) -> None:
         scope_parts.append("globals")
     scope = ", ".join(scope_parts)
 
+    # Warm up sudo outside the spinner — a repair refresh of an INCOMPLETE box
+    # may need host sudo, and a prompt hidden by the spinner would time out.
+    from devbox.core import preflight_refresh
+
+    preflight_refresh(targets)
+
     failures: list[tuple[str, str]] = []
     for box in targets:
         try:
